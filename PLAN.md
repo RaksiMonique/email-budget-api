@@ -48,13 +48,14 @@ These must be done before any code or Cloudflare setup.
 
 - [x] ⛅ Inbound email hostname decided: **`fintrack.raksimoni.com`** (dedicated subdomain — isolates the service from personal `@raksimoni.com` mail; apex Email Routing stays untouched)
 - [x] ⛅ Domain confirmed on Cloudflare (`raksimoni.com`; Email Routing already live on the apex — MX `route1/2/3.mx.cloudflare.net`, SPF present)
-- [ ] ⛅ Confirm R2 **and** Queues are available on the Cloudflare plan
-  - ⚠️ **Cloudflare Queues requires the Workers Paid plan ($5/mo)** — not on the free tier. This blocks Phase 2 if not upgraded.
-  - R2 has a free tier but must be activated (add a payment method; no egress fees)
-- [ ] ⛅ Create Cloudflare R2 bucket: `email-budget-raw`
-  - Set lifecycle rule: delete objects after 90 days
-  - Create an R2 API token → note account ID, access key ID, secret access key → into `.env`
-- [ ] ⛅ Create a Render account (or confirm existing) — hosting decided 2026-07-26: **Render**, replacing Railway
+- [x] ⛅ Confirm R2 **and** Queues are available on the Cloudflare plan
+  - [x] **Queues: confirmed** — both queues created 2026-07-27 via wrangler with no paid-plan block (account ID `f5ab158769e6cf5e226aaf83714e850f`)
+  - [x] **R2: activated** 2026-07-27 (dashboard, payment method added)
+- [x] ⛅ Create Cloudflare R2 bucket: `email-budget-raw`
+  - [x] Bucket created 2026-07-27 (Standard storage class, via wrangler)
+  - [x] Lifecycle rule `delete-raw-eml-after-90-days`: expire objects after 90 days (verified via `lifecycle list`)
+  - [x] R2 API token created (scoped to bucket, Object Read & Write) → keys in `.env`; **verified 2026-07-27 with a PUT→GET→DELETE round-trip via boto3**
+- [ ] ⛅ Create a Render account (or confirm existing) — hosting decided 2026-07-26: **Render**, replacing Railway. *Sole remaining Phase 0 item; not needed until Phase 9 — sign up at [render.com](https://render.com) with GitHub login whenever convenient.*
 - [x] 🔧 Initialize git repository (branch `main`; `.gitignore`, `README.md`, `.env.example` added — not yet committed)
 - [x] 🔧 Create project folder structure (scaffolded to CURRENT architecture: `backend/app/{extraction,services,…}`, `workers/{email-ingest,email-queue-consumer}`, `backend/tests/fixtures/eml/`)
 - [x] 🔧 **Doc reconciliation:** current architecture is [docs/architecture/redesign-summary.md](docs/architecture/redesign-summary.md); ~20 docs still reference the removed stack (Postmark/Clerk/Nylas/Celery/Redis).
@@ -184,9 +185,9 @@ These must be done before any code or Cloudflare setup.
 
 ### Cloudflare Queues
 
-- [ ] ⛅ Create queue: `email-processing`
-- [ ] ⛅ Create dead-letter queue: `email-processing-dlq`
-- [ ] 🔧 Note queue IDs for `wrangler.toml`
+- [x] ⛅ Create queue: `email-processing` (done early, 2026-07-27 — id `9582781646144c2c882ca4e4314f44c7`)
+- [x] ⛅ Create dead-letter queue: `email-processing-dlq` (id `83dfba16d45e4c7eaf017dd46529e69f`)
+- [x] 🔧 Note queue IDs for `wrangler.toml` (recorded above)
 
 ### Email Worker (`workers/email-ingest`)
 
