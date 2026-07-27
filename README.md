@@ -16,7 +16,7 @@ Backend service that turns **auto-forwarded financial emails** into structured t
 | Email ingestion | Cloudflare Email Routing → Email Worker → Queue → Consumer Worker |
 | Extraction | Regex templates + heuristics (no AI in MVP) |
 | Auth | API key (service-to-service) + internal shared secret |
-| Hosting | Railway |
+| Hosting | Render |
 | Monitoring | Sentry |
 
 > This is a pure backend API. There is **no frontend** here — the budgeting app owns all user-facing UI.

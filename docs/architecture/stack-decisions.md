@@ -18,7 +18,7 @@
 | Extraction | **Regex templates + heuristics** | Replaces Claude API (MVP) |
 | Inbox connection | **Not in scope** | Removes Nylas |
 | Frontend | **Not in scope** (budgeting app owns UI) | Removes Next.js |
-| Hosting | **Railway** (MVP) → AWS ECS (prod) | Unchanged |
+| Hosting | **Render** (MVP) → AWS ECS (prod) | Replaces Railway (2026-07-26; Starter instance — free tier spin-down breaks webhook latency) |
 | Monitoring | **Sentry** | Unchanged |
 | Testing | **pytest** + **httpx** + **wrangler** (Workers) | Simplified |
 

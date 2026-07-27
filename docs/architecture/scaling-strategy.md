@@ -1,6 +1,6 @@
 # Scaling Strategy — N.
 
-> ⚠️ **SUPERSEDED (pre-redesign).** The bottleneck analysis assumes Celery, Redis, and Nylas — all removed. Re-derive scaling against the current stack (Cloudflare Queues + FastAPI on Railway) when relevant. Authoritative stack: [redesign-summary.md](redesign-summary.md).
+> ⚠️ **SUPERSEDED (pre-redesign).** The bottleneck analysis assumes Celery, Redis, and Nylas — all removed. Re-derive scaling against the current stack (Cloudflare Queues + FastAPI on Render) when relevant. Authoritative stack: [redesign-summary.md](redesign-summary.md).
 
 ## Current Architecture Bottlenecks
 

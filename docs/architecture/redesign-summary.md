@@ -52,7 +52,7 @@ This application is now a pure backend API. The budgeting app owns all user-faci
 | Extraction | **Regex templates + heuristics** | Replaces Claude API |
 | Inbox connection | **Not in scope** | Removes Nylas |
 | Frontend | **Not in scope** | Removes Next.js |
-| Hosting | **Railway** (MVP) | Unchanged |
+| Hosting | **Render** (MVP) | Replaces Railway (decided 2026-07-26) |
 | Monitoring | **Sentry** | Unchanged |
 | Testing | **pytest** + **httpx** | Removed Playwright |
 

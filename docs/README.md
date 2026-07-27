@@ -49,7 +49,7 @@ User forwards email → Cloudflare alias → Email Worker → R2 + Queue
 | **Auth Strategy** | [security/auth-strategy.md](security/auth-strategy.md) | ⚠️ Pre-redesign (Clerk/Nylas) — superseded; MVP uses API-key + internal secret (PLAN.md Phase 3) |
 | **Privacy & Compliance** | [security/privacy-compliance.md](security/privacy-compliance.md) | GDPR, data retention, deletion |
 | **Testing** | [testing/testing-strategy.md](testing/testing-strategy.md) | Test pyramid, extraction accuracy fixtures |
-| **Hosting & Deployment** | [infrastructure/hosting-deployment.md](infrastructure/hosting-deployment.md) | Railway MVP, wrangler Workers deploy |
+| **Hosting & Deployment** | [infrastructure/hosting-deployment.md](infrastructure/hosting-deployment.md) | ⚠️ Pre-redesign (Railway/Celery) — hosting is now Render; see PLAN.md Phase 9 |
 | **MVP Recommendation** | [mvp/mvp-recommendation.md](mvp/mvp-recommendation.md) | What to build, in what order |
 | **Roadmap** | [future-roadmap/roadmap.md](future-roadmap/roadmap.md) | Phase-by-phase feature roadmap |
 | **Open Decisions** | [future-roadmap/open-decisions.md](future-roadmap/open-decisions.md) | Unresolved technical questions |
@@ -74,7 +74,7 @@ User forwards email → Cloudflare alias → Email Worker → R2 + Queue
 | Extraction | Regex templates + heuristics | Claude API |
 | Inbox connection | Not in scope (Phase 3) | Nylas |
 | Frontend | Not in scope (budgeting app owns) | Next.js |
-| Hosting | Railway (MVP) | — (unchanged) |
+| Hosting | Render (MVP) | Railway (decided 2026-07-26) |
 
 ---
 

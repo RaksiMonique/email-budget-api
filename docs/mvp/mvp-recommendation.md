@@ -91,7 +91,7 @@ Budgeting App webhook               → new extraction result available
 
 ### Phase 1h: Deployment + Hardening (Week 4)
 
-- [ ] Railway deployment (FastAPI + PostgreSQL)
+- [ ] Render deployment (FastAPI + PostgreSQL; Starter instance — free tier spin-down breaks webhook latency)
 - [ ] Wrangler deploy for Cloudflare Workers
 - [ ] Sentry integration (FastAPI + Worker errors)
 - [ ] Internal secret rotation mechanism

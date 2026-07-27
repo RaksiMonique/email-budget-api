@@ -54,7 +54,7 @@ These must be done before any code or Cloudflare setup.
 - [ ] ⛅ Create Cloudflare R2 bucket: `email-budget-raw`
   - Set lifecycle rule: delete objects after 90 days
   - Create an R2 API token → note account ID, access key ID, secret access key → into `.env`
-- [ ] ⛅ Create a Railway account (or confirm existing)
+- [ ] ⛅ Create a Render account (or confirm existing) — hosting decided 2026-07-26: **Render**, replacing Railway
 - [x] 🔧 Initialize git repository (branch `main`; `.gitignore`, `README.md`, `.env.example` added — not yet committed)
 - [x] 🔧 Create project folder structure (scaffolded to CURRENT architecture: `backend/app/{extraction,services,…}`, `workers/{email-ingest,email-queue-consumer}`, `backend/tests/fixtures/eml/`)
 - [x] 🔧 **Doc reconciliation:** current architecture is [docs/architecture/redesign-summary.md](docs/architecture/redesign-summary.md); ~20 docs still reference the removed stack (Postmark/Clerk/Nylas/Celery/Redis).
@@ -356,14 +356,21 @@ These must be done before any code or Cloudflare setup.
 
 ## Phase 9 — Deployment and Hardening
 
-### Railway deployment
+### Render deployment
 
 - [ ] 🔧 `backend/Dockerfile`
-- [ ] ⛅ Create Railway project; add PostgreSQL plugin
-- [ ] ⛅ Set env: `DATABASE_URL`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `INTERNAL_SECRET`, `SENTRY_DSN`, `ENVIRONMENT=production`
-- [ ] ⛅ Connect Railway → GitHub (deploy on push to `main`)
-- [ ] 🔧 `alembic upgrade head` as a pre-deploy hook
-- [ ] ⛅ Update Consumer Worker `FASTAPI_INTERNAL_URL` → Railway URL; redeploy
+- [ ] 🔧 Optional: `render.yaml` Blueprint (web service + Postgres as code — keeps infra reviewable in git)
+- [ ] ⛅ Create Render **Web Service** from the GitHub repo (runtime: Docker, root dir `backend/`)
+  - ⚠️ **Starter ($7/mo) or higher** — free instances spin down after ~15 min idle and cold-start in ~30–60s, which breaks the <10s processing target and delays every first email after a quiet period
+  - Set a health check path (e.g. `/healthz` — add the endpoint in Phase 3's `main.py`)
+- [ ] ⛅ Create **Render PostgreSQL** instance
+  - ⚠️ Free Postgres **expires after 30 days** (14-day grace, then deleted) — use a paid tier for anything holding real data
+  - Render issues `DATABASE_URL` as `postgres://…` — `config.py` must rewrite the scheme to `postgresql+asyncpg://`
+  - Use the **internal** connection URL (same-region private network) for the app
+- [ ] ⛅ Set env vars: `DATABASE_URL`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `INTERNAL_SECRET`, `SENTRY_DSN`, `ENVIRONMENT=production`
+- [ ] 🔧 `alembic upgrade head` as Render **Pre-Deploy Command** (paid-instance feature — Starter covers it)
+- [ ] ⛅ Auto-deploy on push to `main` (Render default when connected to GitHub)
+- [ ] ⛅ Update Consumer Worker `FASTAPI_INTERNAL_URL` → `https://<service>.onrender.com`; redeploy
 
 ### Cloudflare Workers final deploy
 

@@ -1,6 +1,6 @@
 # Hosting and Deployment
 
-> ⚠️ **PARTIALLY SUPERSEDED (pre-redesign).** Railway + managed PostgreSQL still stand, but the topology here (Celery workers, Celery Beat, Redis, Clerk/Nylas env vars) is removed. MVP deploys one FastAPI service (no workers) + two Cloudflare Workers via wrangler. Authoritative: [PLAN.md](../../PLAN.md) Phase 9.
+> ⚠️ **SUPERSEDED (pre-redesign).** Both the platform and the topology here are obsolete: hosting is now **Render** (decided 2026-07-26, replacing Railway), and the Celery workers / Beat / Redis / Clerk / Nylas env vars are removed. MVP deploys one FastAPI service (Render Starter + paid Postgres) + two Cloudflare Workers via wrangler. Authoritative: [PLAN.md](../../PLAN.md) Phase 9.
 
 ## MVP: Railway
 
