@@ -69,26 +69,28 @@ These must be done before any code or Cloudflare setup.
 
 > Goal: a `.eml` file on disk goes → parsed → sender resolved → classified → extracted → scored, entirely locally, with tests. **This is the highest-risk part of the project; build and prove it before touching Cloudflare.**
 > Docs: [docs/ai-processing/extraction-strategy.md](docs/ai-processing/extraction-strategy.md)
+>
+> **Status (2026-07-26):** the full pipeline is built and green on a synthetic Chase-alert fixture using **stdlib only** (`html2text`/`dateparser` are optional accuracy upgrades). Remaining: collect the real `.eml` corpus, add per-sender templates beyond `chase.com`, and grow the test suite from the corpus.
 
 ### Corpus collection (do this first)
 
-- [ ] 🔧 Create `backend/tests/fixtures/eml/` and collect **30–50 real auto-forwarded `.eml` files**:
+- [~] 🔧 Create `backend/tests/fixtures/eml/` and collect **30–50 real auto-forwarded `.eml` files**: *(dir created; a synthetic fixture stands in for now — the real corpus is yours to gather)*
   - Each priority sender (banks first — highest signal), across Gmail and Outlook auto-forward
   - Include a few manual forwards (best-effort tier) and a few non-financial emails (newsletters) as negatives
   - Redact PII where needed but keep header structure (`From`, `DKIM-Signature`, `Subject`, body) intact
-- [ ] 🔧 Build a tiny local harness: `python -m app.extraction.run_fixture <path.eml>` prints resolved sender, classification, extracted fields, confidence
-- [ ] 🔧 Snapshot/assertion tests: each fixture has an expected extraction; regressions fail CI
+- [x] 🔧 Build a tiny local harness: `python -m app.extraction.run_fixture <path.eml>` prints resolved sender, classification, extracted fields, confidence
+- [~] 🔧 Snapshot/assertion tests: each fixture has an expected extraction; regressions fail CI *(3 tests green on the synthetic fixture; grows with the corpus)*
 
 ### MIME parsing
 
-- [ ] 🔧 `app/extraction/mime_parser.py`:
+- [x] 🔧 `app/extraction/mime_parser.py`:
   - Parse raw `.eml` bytes with Python `email` library
   - Extract `text_body`, `html_body`, `headers` (incl. `DKIM-Signature`), attachment list
   - HTML → text with `html2text` if no text body
 
 ### Sender resolution (forward-unwrapping)
 
-- [ ] 🔧 `app/extraction/sender_resolver.py`:
+- [x] 🔧 `app/extraction/sender_resolver.py`:
   - Parse `DKIM-Signature` header(s); extract `d=` domain → **primary** sender signal
   - Fall back to `From:` header domain (preserved by auto-forward)
   - Fall back to a body-embedded sender block for providers that rewrite headers (robust, not a single `^From:` regex — handle Gmail `On <date>, <name> <addr> wrote:`, Apple Mail, and HTML quote wrappers)
@@ -97,30 +99,30 @@ These must be done before any code or Cloudflare setup.
 
 ### Email classification
 
-- [ ] 🔧 `app/services/classification_service.py`:
+- [x] 🔧 `app/services/classification_service.py`: *(pure logic; DB persistence added in Phase 4)*
   - Load `financial_sender_registry` (known financial sender domains)
   - Check **resolved** sender domain against registry (not raw `From:`)
   - Check subject against `financial_subject_patterns` (regex list)
   - Assign `is_financial` + `email_type` + `confidence`; persist an `EmailClassification` (store the resolved sender + `source` for auditability)
   - If `is_financial=false` → mark `ImportedEmail.status = non_financial`, stop pipeline
-- [ ] 🔧 Seed `financial_sender_registry` for all 20 priority senders (below)
-- [ ] 🔧 Seed `financial_subject_patterns`: receipt, invoice, payment, charged, purchase, order, transaction, statement, alert, refund, credit, debit, withdrawal, deposit, subscription, renewal, bill, confirmation
+- [~] 🔧 Seed `financial_sender_registry` for all 20 priority senders (below) *(seeded 11 incl. all P0 banks; finish alongside templates)*
+- [x] 🔧 Seed `financial_subject_patterns`: receipt, invoice, payment, charged, purchase, order, transaction, statement, alert, refund, credit, debit, withdrawal, deposit, subscription, renewal, bill, confirmation
 
 ### Content preparation
 
-- [ ] 🔧 `app/extraction/content_preparer.py`:
+- [x] 🔧 `app/extraction/content_preparer.py`:
   - HTML → plain text (`html2text`)
   - Strip email footers (unsubscribe blocks, legal boilerplate) and quoted-forward chrome
   - Whitespace normalization, 8000-char cap
 
 ### Sender template extraction
 
-- [ ] 🔧 `app/extraction/template_extractor.py`:
+- [x] 🔧 `app/extraction/template_extractor.py`:
   - Load `ExtractionTemplate` records (cached in memory)
   - Match resolved sender domain → template
   - Run per-field regex against prepared content → `TemplateResult` (fields + confidence)
 - [ ] 🔧 Write templates for **P0** senders (validate against corpus; banks first):
-  - [ ] chase.com
+  - [x] chase.com *(provisional — validate against real corpus)*
   - [ ] bankofamerica.com
   - [ ] wellsfargo.com
   - [ ] amazon.com
@@ -141,7 +143,7 @@ These must be done before any code or Cloudflare setup.
 
 ### General regex extraction
 
-- [ ] 🔧 `app/extraction/general_extractor.py`:
+- [x] 🔧 `app/extraction/general_extractor.py`:
   - Amount patterns (dollar, European, multi-currency) → **`Decimal`, never `float`**
   - Date patterns (ISO, US, EU, natural language) via `dateparser`
   - Card suffix patterns; currency code extraction
@@ -149,7 +151,7 @@ These must be done before any code or Cloudflare setup.
 
 ### Merchant normalization + category suggestion
 
-- [ ] 🔧 `app/services/rules_engine.py`:
+- [x] 🔧 `app/services/rules_engine.py`:
   - Load `merchant_rules` (cached, 10-min TTL, invalidate on mutation)
   - Apply in priority order: `starts_with` → `contains` → `exact` → `regex`
   - Generic cleanup: strip trailing transaction IDs, `#numbers`, title-case
@@ -157,7 +159,7 @@ These must be done before any code or Cloudflare setup.
 
 ### Confidence scoring
 
-- [ ] 🔧 `app/extraction/confidence_scorer.py`:
+- [x] 🔧 `app/extraction/confidence_scorer.py`:
   - Per-field confidence (template=0.97, regex=0.75, absent=0.0)
   - Overall: weighted average of required fields (amount 35%, date 20%, merchant 25%, currency 10%) + optional-field bonus
   - **Two routes only:** `< 0.60` or missing a required field → `extraction_failed`; otherwise → `pending_review`

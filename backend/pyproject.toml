@@ -1,0 +1,22 @@
+[project]
+name = "email-budget-api"
+version = "0.1.0"
+description = "Extract transactions from auto-forwarded financial emails"
+requires-python = ">=3.11"
+dependencies = [
+    # Phase 1 extraction runs on the stdlib; these improve accuracy when installed:
+    "html2text>=2024.2.26",
+    "dateparser>=1.2.0",
+    # Later phases (3+) add: fastapi, uvicorn, sqlalchemy[asyncio], asyncpg,
+    # alembic, pydantic[email], boto3, httpx, python-multipart, sentry-sdk
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

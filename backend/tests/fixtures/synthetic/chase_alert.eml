@@ -1,0 +1,19 @@
+From: Chase Alerts <no.reply.alerts@chase.com>
+To: abc123token@fintrack.raksimoni.com
+Subject: Fwd: Your account: A transaction was made
+Date: Sun, 12 Jul 2026 18:14:00 +0000
+Message-ID: <alert-20260712-abc@chase.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=chase.com; s=s1;
+ h=from:to:subject:date; bh=abcdefg=; b=xyzsignature=
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Chase Alerts
+
+You made a $45.99 transaction with AMAZON MKTP US on Jul 12, 2026.
+
+Account: Chase Freedom Unlimited (...1234)
+
+If you don't recognize this transaction, call the number on the back of your card.
+
+You're receiving this alert because you set it up. Manage alerts or unsubscribe in the Chase Mobile app.
