@@ -1,0 +1,36 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Env / secrets (never commit real values) ──
+.env
+.env.*
+!.env.example
+
+# ── Node / Cloudflare Workers ──
+node_modules/
+.wrangler/
+dist/
+*.tsbuildinfo
+
+# ── Local email corpus (may contain real PII — keep out of git) ──
+backend/tests/fixtures/eml/*.eml
+
+# ── OS / editor ──
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ── Logs ──
+*.log

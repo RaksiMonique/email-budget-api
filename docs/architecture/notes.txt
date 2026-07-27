@@ -1,0 +1,6 @@
+- user forwards email 
+- cloudflare email routing with aliases assigned to user
+- save raw email in clouflare r2
+- sends message to cloudflare queue
+- email tracker api consumes from clouflfare queue
+- 
