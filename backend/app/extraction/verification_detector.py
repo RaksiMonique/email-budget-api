@@ -25,6 +25,11 @@ VERIFICATION_SENDERS = {
     "forwarding-noreply@googlemail.com": "gmail",
 }
 
+# Real-format note (observed 2026-07-28, live corpus sample): current Gmail
+# verification emails carry ONLY the confirmation URL — no numeric code in
+# subject or body. Code extraction below is best-effort for older/localized
+# formats; consumers must treat `code` as nullable and prefer the URL.
+
 _GMAIL_CODE_SUBJECT = re.compile(r"\(#(\d{6,12})\)")
 _GMAIL_CODE_BODY = re.compile(r"(?:code|konfirmationscode)\D{0,40}?(\d{6,12})", re.I)
 _GMAIL_CONFIRM_URL = re.compile(
