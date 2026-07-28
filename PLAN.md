@@ -178,10 +178,10 @@ These must be done before any code or Cloudflare setup.
 
 ### Cloudflare Email Routing
 
-- [ ] ⛅ Enable Cloudflare Email Routing on the domain
-- [ ] ⛅ Confirm the required MX records were added (`dig MX fintrack.raksimoni.com` → Cloudflare MX)
-- [ ] ⛅ Set SPF TXT if not auto-added: `"v=spf1 include:_spf.mx.cloudflare.net ~all"`
-- [ ] ⛅ Create a catch-all routing rule → Email Worker `email-ingest-worker` (create placeholder Worker first)
+- [x] ⛅ Enable Cloudflare Email Routing on the domain (zone status `ready`; `fintrack.` subdomain already enabled — MX present)
+- [x] ⛅ Confirm the required MX records (`dig MX fintrack.raksimoni.com` → route1/2/3.mx.cloudflare.net ✓, verified 2026-07-28)
+- [x] ⛅ SPF TXT present on `fintrack.`: `"v=spf1 include:_spf.mx.cloudflare.net ~all"` ✓
+- [x] ⛅ Zone catch-all → `email-ingest-worker` (set via API 2026-07-28; behavior-preserving: explicit personal rules win, unknown mail still rejected — now by the Worker)
 
 ### Cloudflare Queues
 
@@ -191,26 +191,27 @@ These must be done before any code or Cloudflare setup.
 
 ### Email Worker (`workers/email-ingest`)
 
-- [ ] 🔧 Create `workers/email-ingest/` (`wrangler.toml`, `src/index.ts`)
-- [ ] 🔧 Implement Email Worker:
+- [x] 🔧 Create `workers/email-ingest/` (`wrangler.toml`, `src/index.ts`)
+- [x] 🔧 Implement Email Worker:
   - Receive `email` event; derive `alias_hash` from the recipient
   - **Validate alias at the edge FIRST:** `GET /internal/aliases/{alias_hash}` with `X-Internal-Secret`, result cached in the Workers Cache API / KV (short TTL). Unknown or inactive alias → **drop silently, do NOT write R2, do NOT enqueue.**
   - Only then: read raw MIME → `ArrayBuffer` → upload to R2 `emails/{alias_hash}/{email_id}.eml`
   - Push minimal message to `email-processing`:
     `{ email_id, alias_hash, r2_key, from, to, subject, message_id, date_header, received_at }`
-- [ ] ⛅ Deploy Email Worker (`wrangler deploy`)
-- [ ] ⛅ Bind R2 bucket + Queue (dashboard or `wrangler.toml`)
-- [ ] 🔧 Manual test: auto-forward a real email → verify `.eml` appears in R2 **and** an unknown-alias test is dropped at the edge
+- [x] ⛅ Deploy Email Worker (`wrangler deploy` 2026-07-28, version `40c4756a`; `workers_dev=false` — no public HTTP surface)
+  - Edge alias validation is **fail-open until FastAPI exists** (explicit 404/410 → reject; API absent/erroring → accept, webhook re-validates); alias *shape* (8–64 url-safe chars) is enforced at the edge now
+- [x] ⛅ Bind R2 bucket + Queue (via `wrangler.toml`; confirmed in deploy output: `R2_BUCKET` → email-budget-raw, `EMAIL_QUEUE` → email-processing)
+- [ ] 🔧 Manual test: send a real email to a token-shaped alias → verify `.eml` appears in R2 + queue backlog increments; confirm a short/invalid alias bounces
 
 ### Queue Consumer Worker (`workers/email-queue-consumer`)
 
-- [ ] 🔧 Create `workers/email-queue-consumer/` (`wrangler.toml`, `src/index.ts`)
-- [ ] 🔧 Implement Consumer Worker:
+- [x] 🔧 Create `workers/email-queue-consumer/` (`wrangler.toml`, `src/index.ts`)
+- [x] 🔧 Implement Consumer Worker:
   - Consume `email-processing` (batch size 10)
   - `POST /internal/email-received` to FastAPI with `X-Internal-Secret`
   - `message.ack()` on 200; `message.retry()` on non-200 (FastAPI processes synchronously, so 200 means fully stored — see Phase 3)
-- [ ] ⛅ Set Worker env: `FASTAPI_INTERNAL_URL`, `INTERNAL_SECRET` (`openssl rand -hex 32`)
-- [ ] ⛅ Deploy Consumer Worker; bind queue as consumer
+- [ ] ⛅ Set Worker env: `FASTAPI_INTERNAL_URL`, `INTERNAL_SECRET` (`openssl rand -hex 32`) — *deferred to Phase 9 wiring*
+- [ ] ⛅ Deploy Consumer Worker; bind queue as consumer — **deliberately NOT deployed until FastAPI is reachable** (an attached consumer with no API burns every message's retries into the DLQ; deploy-gate note in its `wrangler.toml`). Queue messages meanwhile expire per queue retention (~4 days) — harmless: raw `.eml`s persist in R2 and are replayable.
 
 **Phase 2 complete when:** auto-forwarding to a *known* alias produces an R2 object + a queue message, and forwarding to an *unknown* alias is dropped at the edge.
 

@@ -1,0 +1,22 @@
+name = "email-ingest-worker"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+workers_dev = false # triggered by email routing, not HTTP — no public URL
+
+# Receives `email` events via the zone catch-all routing rule.
+# Only serves ALIAS_DOMAIN; all other recipients are rejected (preserving the
+# pre-existing behavior of the disabled zone catch-all).
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "email-budget-raw"
+
+[[queues.producers]]
+binding = "EMAIL_QUEUE"
+queue = "email-processing"
+
+[vars]
+ALIAS_DOMAIN = "fintrack.raksimoni.com"
+# FASTAPI_INTERNAL_URL — set when the FastAPI service is live (Phase 9); until
+# then edge alias validation fails open and the webhook re-validates.
+# INTERNAL_SECRET — set via: wrangler secret put INTERNAL_SECRET

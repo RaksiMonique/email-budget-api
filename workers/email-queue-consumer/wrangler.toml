@@ -1,0 +1,24 @@
+name = "email-queue-consumer"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+workers_dev = false # triggered by queue consumption, not HTTP — no public URL
+
+# ── DEPLOY GATE ──────────────────────────────────────────────────────────────
+# Do NOT deploy this worker until the FastAPI service is reachable — an attached
+# consumer with no API burns every message's retries into the DLQ.
+# Before deploying (Phase 4/9 wiring):
+#   1. wrangler secret put INTERNAL_SECRET        (same value as backend .env)
+#   2. set FASTAPI_INTERNAL_URL below (Render URL, or a tunnel for local dev)
+#   3. wrangler deploy
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[queues.consumers]]
+queue = "email-processing"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "email-processing-dlq"
+
+[vars]
+FASTAPI_INTERNAL_URL = "" # e.g. https://email-budget-api.onrender.com
+# INTERNAL_SECRET — set via: wrangler secret put INTERNAL_SECRET
