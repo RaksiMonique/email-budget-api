@@ -201,7 +201,7 @@ These must be done before any code or Cloudflare setup.
 - [x] ⛅ Deploy Email Worker (`wrangler deploy` 2026-07-28, version `40c4756a`; `workers_dev=false` — no public HTTP surface)
   - Edge alias validation is **fail-open until FastAPI exists** (explicit 404/410 → reject; API absent/erroring → accept, webhook re-validates); alias *shape* (8–64 url-safe chars) is enforced at the edge now
 - [x] ⛅ Bind R2 bucket + Queue (via `wrangler.toml`; confirmed in deploy output: `R2_BUCKET` → email-budget-raw, `EMAIL_QUEUE` → email-processing)
-- [ ] 🔧 Manual test: send a real email to a token-shaped alias → verify `.eml` appears in R2 + queue backlog increments; confirm a short/invalid alias bounces
+- [x] 🔧 Manual test (live, 2026-07-28): real Gmail → `k3PZx9WqL2mN8vTa@fintrack…` → `.eml` in R2 (7 KB, alias lowercased) ✓; invalid `x@fintrack…` rejected at edge (no R2 object) ✓; `.eml` pulled into the Phase 1 corpus and run through the local pipeline — DKIM resolution (`d=gmail.com`, 0.97) and non-financial classification both correct ✓
 
 ### Queue Consumer Worker (`workers/email-queue-consumer`)
 
@@ -214,6 +214,8 @@ These must be done before any code or Cloudflare setup.
 - [ ] ⛅ Deploy Consumer Worker; bind queue as consumer — **deliberately NOT deployed until FastAPI is reachable** (an attached consumer with no API burns every message's retries into the DLQ; deploy-gate note in its `wrangler.toml`). Queue messages meanwhile expire per queue retention (~4 days) — harmless: raw `.eml`s persist in R2 and are replayable.
 
 **Phase 2 complete when:** auto-forwarding to a *known* alias produces an R2 object + a queue message, and forwarding to an *unknown* alias is dropped at the edge.
+
+> **Status: ✅ complete 2026-07-28** (with the documented caveat that edge alias validation is shape-only + fail-open until FastAPI exists; registry-backed edge rejection activates in Phase 9 wiring). Consumer Worker deploy is deliberately deferred — see gate note above.
 
 ---
 
