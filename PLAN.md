@@ -263,6 +263,7 @@ These must be done before any code or Cloudflare setup.
 
 - [ ] 🔧 `POST /api/v1/aliases` — create alias, generate **`secrets.token_urlsafe(12)`** (~72 bits) token, uniqueness-checked, store in DB
 - [ ] 🔧 `GET /api/v1/aliases?external_user_id=` — list user's aliases
+- [ ] 🔧 `GET /api/v1/aliases/{id}` — alias detail incl. `emails_received` counter (increments on **every** accepted email regardless of classification — the onboarding "waiting for first email" poll target)
 - [ ] 🔧 `DELETE /api/v1/aliases/{id}` — deactivate (`is_active=false`)
 - [ ] 🔧 `GET /internal/aliases/{alias_hash}` — edge validation lookup for the Email Worker (fast, cacheable; returns active/inactive)
 
@@ -343,6 +344,7 @@ These must be done before any code or Cloudflare setup.
   - Replaces the `asyncio.sleep` retry loop, which does not survive redeploys
 - [ ] 🔧 Enqueue `extraction.created` after successful extraction; `extraction.failed` after failure
 - [ ] 🔧 Enqueue `forwarding.verification` when the pipeline yields `status=forwarding_verification` — payload: `{alias_hash, provider, code, confirmation_url, received_at}` (powers in-app Gmail forwarding setup)
+- [ ] 🔧 Optional: enqueue `alias.first_email_received` (once per alias, on its first accepted email of **any** classification) — needed because a non-financial first email fires no extraction webhook; push-style complement to the `emails_received` polling signal
 
 ---
 
@@ -444,6 +446,7 @@ These must be done before any code or Cloudflare setup.
 - [ ] On user onboarding (email feature enabled): call `POST /aliases` → store returned alias
 - [ ] **Auto-forward setup UX:** walk the user through creating a server-side auto-forward rule to their alias (Gmail Settings→Forwarding / filter; Outlook rule). This is the ingestion path — manual "Fwd" is unsupported/best-effort. Show copy-paste instructions + the alias.
 - [ ] **Closed-loop Gmail verification:** subscribe the onboarding screen to `forwarding.verification` webhooks — when Gmail sends its confirmation email to the alias, display the extracted code/link inline ("Your Gmail code: XXXXX") so the user finishes setup without ever needing an inbox at the alias. Show the confirmation link for the *user* to click — never auto-confirm server-side.
+- [ ] **"Waiting for your first email" indicator (all providers, incl. non-verifying ones like Outlook):** while the onboarding screen is open, poll `GET /aliases/{id}` every ~5s; `emails_received > 0` → flip to "✓ Forwarding works!". Prompt the user to **send themselves a test email matching their filter** so the loop closes in seconds instead of waiting days for a real bank alert. (Optionally subscribe to `alias.first_email_received` instead of polling.)
 - [ ] On account deletion: call `DELETE /users/{external_user_id}/data`
 - [ ] Expose webhook endpoint `POST /webhooks/email-extractions`:
   - Verify `X-EmailBudget-Signature` + `X-EmailBudget-Timestamp`
