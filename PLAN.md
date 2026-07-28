@@ -108,6 +108,7 @@ These must be done before any code or Cloudflare setup.
   - If `is_financial=false` → mark `ImportedEmail.status = non_financial`, stop pipeline
 - [~] 🔧 Seed `financial_sender_registry` for all 20 priority senders (below) *(seeded 11 incl. all P0 banks; finish alongside templates)*
 - [x] 🔧 Seed `financial_subject_patterns`: receipt, invoice, payment, charged, purchase, order, transaction, statement, alert, refund, credit, debit, withdrawal, deposit, subscription, renewal, bill, confirmation
+- [x] 🔧 **Forwarding-verification detection** (`verification_detector.py`, added 2026-07-28): Gmail's confirm-your-forwarding-address email lands at the alias, not in any inbox — detect it by exact sender (`forwarding-noreply@google.com`, checked *before* the financial registry, which would misread google.com as a receipt), extract code + confirmation URL, route to `status=forwarding_verification`. Service layer surfaces it via a `forwarding.verification` webhook (Phase 7) so the budgeting app can show the code during onboarding. Deliberately **no auto-confirm** — clicking the URL server-side would let a stranger wire *their* inbox to a victim's alias; a human stays in the loop.
 
 ### Content preparation
 
@@ -341,6 +342,7 @@ These must be done before any code or Cloudflare setup.
   - On 2xx → `status=delivered`, stamp `delivered_at`. On failure → increment `attempts`, set `next_attempt_at` by backoff **immediate → 1m → 5m → 15m → 1h**, then `status=failed` (surfaced for inspection)
   - Replaces the `asyncio.sleep` retry loop, which does not survive redeploys
 - [ ] 🔧 Enqueue `extraction.created` after successful extraction; `extraction.failed` after failure
+- [ ] 🔧 Enqueue `forwarding.verification` when the pipeline yields `status=forwarding_verification` — payload: `{alias_hash, provider, code, confirmation_url, received_at}` (powers in-app Gmail forwarding setup)
 
 ---
 
@@ -441,6 +443,7 @@ These must be done before any code or Cloudflare setup.
 - [ ] Store Email API key securely in budgeting app config
 - [ ] On user onboarding (email feature enabled): call `POST /aliases` → store returned alias
 - [ ] **Auto-forward setup UX:** walk the user through creating a server-side auto-forward rule to their alias (Gmail Settings→Forwarding / filter; Outlook rule). This is the ingestion path — manual "Fwd" is unsupported/best-effort. Show copy-paste instructions + the alias.
+- [ ] **Closed-loop Gmail verification:** subscribe the onboarding screen to `forwarding.verification` webhooks — when Gmail sends its confirmation email to the alias, display the extracted code/link inline ("Your Gmail code: XXXXX") so the user finishes setup without ever needing an inbox at the alias. Show the confirmation link for the *user* to click — never auto-confirm server-side.
 - [ ] On account deletion: call `DELETE /users/{external_user_id}/data`
 - [ ] Expose webhook endpoint `POST /webhooks/email-extractions`:
   - Verify `X-EmailBudget-Signature` + `X-EmailBudget-Timestamp`

@@ -14,6 +14,7 @@ from app.extraction import (
     mime_parser,
     sender_resolver,
     template_extractor,
+    verification_detector,
 )
 from app.extraction.models import (
     Classification,
@@ -28,6 +29,30 @@ from app.services import classification_service, rules_engine
 def run(raw: bytes) -> ExtractionResult:
     parsed = mime_parser.parse(raw)
     sender = sender_resolver.resolve(parsed)
+
+    # Forwarding-verification mail (e.g. Gmail's confirm-your-forwarding-address)
+    # is detected BEFORE financial classification — its sender resolves to
+    # google.com, which the registry would misread as a Play-store receipt.
+    if verification := verification_detector.detect(parsed):
+        fields = {}
+        if verification.code:
+            fields["verification_code"] = Field(verification.code, "template")
+        if verification.confirmation_url:
+            fields["confirmation_url"] = Field(verification.confirmation_url, "template")
+        return ExtractionResult(
+            resolved_sender=sender,
+            classification=Classification(
+                False, EmailType.FORWARDING_VERIFICATION, 0.99, "verification_sender"
+            ),
+            fields=fields,
+            merchant_normalized=None,
+            category_suggestion=None,
+            field_confidences={},
+            extraction_confidence=0.0,
+            confidence_band="n/a",
+            status=Status.FORWARDING_VERIFICATION,
+        )
+
     classification = classification_service.classify(sender, parsed.subject)
 
     if not classification.is_financial:

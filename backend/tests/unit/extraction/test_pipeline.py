@@ -60,3 +60,16 @@ def test_non_financial_is_skipped():
     assert r.classification.is_financial is False
     assert r.status == Status.NON_FINANCIAL
     assert r.fields == {}
+
+
+def test_gmail_forwarding_verification_detected():
+    r = _run("gmail_forwarding_verification.eml")
+
+    # must NOT be misclassified as a google.com Play-store receipt
+    assert r.status == Status.FORWARDING_VERIFICATION
+    assert r.classification.email_type == EmailType.FORWARDING_VERIFICATION
+    assert r.classification.is_financial is False
+
+    assert r.value("verification_code") == "734921650"
+    url = r.value("confirmation_url")
+    assert url is not None and url.startswith("https://mail-settings.google.com/mail/")

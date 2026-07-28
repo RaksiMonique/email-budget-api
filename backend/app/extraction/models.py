@@ -20,12 +20,16 @@ class EmailType(str, Enum):
     PAYMENT = "payment"
     UNKNOWN = "unknown"
     NON_FINANCIAL = "non_financial"
+    # provider "confirm your forwarding address" mail (e.g. Gmail) — surfaced to
+    # the budgeting app so the user can complete auto-forward setup
+    FORWARDING_VERIFICATION = "forwarding_verification"
 
 
 class Status(str, Enum):
     PENDING_REVIEW = "pending_review"
     EXTRACTION_FAILED = "extraction_failed"
     NON_FINANCIAL = "non_financial"
+    FORWARDING_VERIFICATION = "forwarding_verification"
 
 
 # extraction field keys

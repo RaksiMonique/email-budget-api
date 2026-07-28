@@ -70,6 +70,21 @@ FastAPI's `/internal/email-received` runs the whole pipeline **synchronously** a
 
 ---
 
+## Forwarding-verification flow (closed loop)
+
+Gmail requires verifying a forwarding destination: when the user adds their alias, Google emails a confirmation code + link **to the alias** — which lands in R2, not in any human inbox. The pipeline closes the loop:
+
+1. `verification_detector.py` recognizes the email by exact sender (`forwarding-noreply@google.com` / `googlemail.com`) — checked **before** financial classification, since the sender resolves to `google.com`, which the registry would misread as a Play-store receipt.
+2. It extracts the confirmation code (subject `(#123456789)` or body) and the `mail-settings.google.com` confirmation URL → `status=forwarding_verification`.
+3. The service fires a `forwarding.verification` webhook: `{alias_hash, provider, code, confirmation_url, received_at}`.
+4. The budgeting app's onboarding screen displays the code/link inline seconds after the user clicks "Add" in Gmail.
+
+**Never auto-confirm server-side.** Clicking the confirmation URL programmatically would let an attacker wire *their* inbox to a victim's alias (feed pollution). The user initiated the setup; the user clicks the confirmation.
+
+Outlook rules generally forward without destination verification; other providers are added to `VERIFICATION_SENDERS` as they appear in the corpus.
+
+---
+
 ## Anti-abuse
 
 | Protection | Implementation |

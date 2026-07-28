@@ -1,0 +1,24 @@
+From: Gmail Team <forwarding-noreply@google.com>
+To: k3PZx9WqL2mN8vTa@fintrack.raksimoni.com
+Subject: (#734921650) Gmail Forwarding Confirmation - Receive Mail from raksi.monique@gmail.com
+Date: Mon, 28 Jul 2026 01:20:00 +0000
+Message-ID: <verif-734921650@mail.gmail.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=20230601;
+ h=from:to:subject:date; bh=abcdefg=; b=signature=
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+raksi.monique@gmail.com has requested to automatically forward mail to your
+email address k3PZx9WqL2mN8vTa@fintrack.raksimoni.com.
+Confirmation code: 734921650
+
+To allow raksi.monique@gmail.com to automatically forward mail to your address,
+please click the link below to confirm the request:
+
+https://mail-settings.google.com/mail/vf-%5BANGjdJ_example_token%5D-aBcDeFgHiJ
+
+If you click the link and it appears to be broken, please copy and paste it
+into a new browser window. If you aren't able to access the link, you can
+send the confirmation code 734921650 to raksi.monique@gmail.com.
+
+Thanks for using Gmail!
