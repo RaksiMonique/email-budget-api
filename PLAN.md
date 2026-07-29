@@ -227,16 +227,16 @@ These must be done before any code or Cloudflare setup.
 
 ### Project setup
 
-- [ ] 🔧 Create `backend/`
-- [ ] 🔧 `pyproject.toml` deps: `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `asyncpg`, `alembic`, `pydantic[email]`, `boto3`, `httpx`, `python-multipart`, `sentry-sdk`, `html2text`, `dateparser`
-- [ ] 🔧 `app/config.py` (pydantic-settings)
-- [ ] 🔧 `app/main.py` (app factory, routers, Sentry init, outbox poller startup — see Phase 7)
-- [ ] 🔧 `docker-compose.yml` for local PostgreSQL
+- [x] 🔧 Create `backend/`
+- [x] 🔧 `pyproject.toml` deps (sentry via optional extra; installed into `backend/.venv`)
+- [x] 🔧 `app/config.py` (pydantic-settings; **rewrites `postgres://` → `postgresql+asyncpg://`** for Render)
+- [x] 🔧 `app/main.py` (app factory, routers, optional Sentry init, `/healthz`; outbox poller lands in Phase 7)
+- [x] 🔧 `docker-compose.yml` for local PostgreSQL (postgres:16 + healthcheck)
 
 ### Database schema
 
-- [ ] 🔧 `alembic init` + async `env.py`
-- [ ] 🔧 SQLAlchemy models:
+- [x] 🔧 Alembic set up with async `env.py`; initial migration `71d4bcb7ea26` generated + applied against dockerized postgres (14 tables incl. `alembic_version`)
+- [x] 🔧 SQLAlchemy models:
   - `aliases` — `alias_hash`, `external_user_id`, `label`, `is_active`, `emails_received`, `created_at`
   - `imported_emails` — `alias_hash`, `r2_key`, `from_address`, `resolved_sender_domain`, `sender_source`, `subject`, `message_id`, `received_at`, `status`, `processing_errors`
   - `email_classifications` — `email_id`, `is_financial`, `email_type`, `confidence`, `method`
@@ -250,26 +250,26 @@ These must be done before any code or Cloudflare setup.
   - `api_keys` — `key_hash`, `label`, `created_at`, `last_used_at`
   - `webhook_config` — `webhook_url`, `webhook_secret_encrypted`, `created_at`
   - **`webhook_outbox`** — `id`, `event_type`, `payload_json`, `target_url`, `status` (`pending`/`delivered`/`failed`), `attempts`, `next_attempt_at`, `last_error`, `created_at`, `delivered_at` (Phase 7)
-- [ ] 🔧 `alembic revision --autogenerate -m "initial_schema"` → `alembic upgrade head`
-- [ ] 🔧 Index `extraction_results.fingerprint` and `extraction_results.external_user_id`
+- [x] 🔧 `alembic revision --autogenerate -m "initial_schema"` → `alembic upgrade head` ✓
+- [x] 🔧 Index `extraction_results.fingerprint` and `extraction_results.external_user_id` (+ partial unique `(alias_hash, message_id)` on `imported_emails` for dedup)
 
 ### Authentication middleware
 
-- [ ] 🔧 `app/security/api_key.py` — `X-API-Key`, constant-time compare against hashed keys, `Depends(require_api_key)`
-- [ ] 🔧 `app/security/internal_secret.py` — `X-Internal-Secret` for `/internal/*`
-- [ ] 🔧 Seed at least one API key (hashed)
+- [x] 🔧 `app/security/api_key.py` — `X-API-Key`, sha256 + indexed lookup, `Depends(require_api_key)`, `last_used_at` stamped
+- [x] 🔧 `app/security/internal_secret.py` — `X-Internal-Secret` via `secrets.compare_digest` (rejects when unset)
+- [x] 🔧 API key seeding CLI: `python -m app.seed.create_api_key <label>` (prints key once, stores hash)
 
 ### Alias management endpoints
 
-- [ ] 🔧 `POST /api/v1/aliases` — create alias, generate **`secrets.token_urlsafe(12)`** (~72 bits) token, uniqueness-checked, store in DB
-- [ ] 🔧 `GET /api/v1/aliases?external_user_id=` — list user's aliases
-- [ ] 🔧 `GET /api/v1/aliases/{id}` — alias detail incl. `emails_received` counter (increments on **every** accepted email regardless of classification — the onboarding "waiting for first email" poll target)
-- [ ] 🔧 `DELETE /api/v1/aliases/{id}` — deactivate (`is_active=false`)
-- [ ] 🔧 `GET /internal/aliases/{alias_hash}` — edge validation lookup for the Email Worker (fast, cacheable; returns active/inactive)
+- [x] 🔧 `POST /api/v1/aliases` — `secrets.token_urlsafe(12).lower()` (~77 bits post-case-fold; lowercase because the Worker lowercases recipients), uniqueness-checked
+- [x] 🔧 `GET /api/v1/aliases?external_user_id=` — list user's aliases
+- [x] 🔧 `GET /api/v1/aliases/{id}` — alias detail incl. `emails_received` counter (increments on **every** accepted email regardless of classification — the onboarding "waiting for first email" poll target)
+- [x] 🔧 `DELETE /api/v1/aliases/{id}` — deactivate (`is_active=false`)
+- [x] 🔧 `GET /internal/aliases/{alias_hash}` — edge validation for the Email Worker (200 active / 410 deactivated / 404 unknown)
 
 ### Internal webhook endpoint (synchronous)
 
-- [ ] 🔧 `POST /internal/email-received`:
+- [x] 🔧 `POST /internal/email-received`:
   - Validate `X-Internal-Secret`
   - Validate alias exists & active (defense in depth; the Worker already checked at the edge)
   - `message_id` dedup — if already processed, return `200` immediately (idempotent)
@@ -281,9 +281,20 @@ These must be done before any code or Cloudflare setup.
 
 ### R2 client
 
-- [ ] 🔧 `app/integrations/r2_client.py` — `get_object(r2_key)`, `delete_object(r2_key)`, configured from `R2_*` env
+- [x] 🔧 `app/integrations/r2_client.py` — async-wrapped boto3; `R2ObjectMissing` (permanent) distinguished from transient errors
 
 **Phase 3 complete when:** POSTing a fixture payload to `/internal/email-received` runs the real pipeline and leaves an `ExtractionResult` (or `extraction_failed`) row + a `webhook_outbox` row, all before the 200.
+
+> **Status: ✅ complete 2026-07-28.** 15/15 tests green against real dockerized Postgres — full webhook flow (extraction + `extraction.created` + `alias.first_email_received` outbox rows, `emails_received=1`), duplicate idempotency, unknown-alias ack-and-drop, edge check 200/404, API-key + internal-secret auth, alias lifecycle. Bonus beyond plan: `alias.first_email_received` event wired; forwarding-verification emails enqueue `forwarding.verification`.
+>
+> **Adversarial review (23-agent workflow, 2026-07-28): 10 findings → 7 confirmed → all fixed** (+ regression tests + migration `47feee03cd82`):
+> 1. **r2_key is now the primary idempotency key** (unique index) — emails without a Message-ID no longer double-import on queue retry-after-commit; message_id dedup stays as the re-forward catch.
+> 2. Queue-payload strings clamped to column limits (message_id 998, from 320, r2_key 512) — an over-length header degrades instead of poisoning the message into the DLQ via DataError→500 loops.
+> 3. Out-of-range amounts (≥10^11) degrade to `extraction_failed` — attacker-deliverable "USD 999999999999.99" can no longer DLQ-poison a message.
+> 4. `last_used_at` touch commits inside `require_api_key` — was silently rolled back on read-only routes (breaking key-rotation decisions) and held a row lock per request.
+> 5. Production serves no `/openapi.json`, `/docs`, or `/redoc` (was: docs off but schema exposed).
+> 6. Alias row locked `FOR UPDATE` during processing — serializes concurrent deliveries; kills the duplicate `alias.first_email_received` race (contested finding, fixed anyway — one line).
+> 7. Sentry events scrub `X-API-Key`/`X-Internal-Secret` headers (`before_send`) — custom auth headers are not in Sentry's default denylist (contested finding, fixed preemptively).
 
 ---
 
