@@ -302,13 +302,13 @@ These must be done before any code or Cloudflare setup.
 
 > Goal: wire the proven Phase 1 pipeline behind the Phase 3 webhook, reading real bytes from R2.
 
-- [ ] 🔧 `app/services/extraction_service.py` — orchestrates: fetch `.eml` from R2 → `mime_parser` → `sender_resolver` → `classification_service` → `content_preparer` → `template_extractor` → `general_extractor` → merge → `rules_engine` → `confidence_scorer` → persist
-  - Creates `ExtractionResult` + `ExtractionSnippet`
-  - Updates `ImportedEmail.status` and template `success_count`/`failure_count`
-  - Enqueues `extraction.created` / `extraction.failed` to `webhook_outbox`
-- [ ] 🔧 Confirm `Decimal` flows end-to-end (no `float()` between extractor and DB)
+- [x] 🔧 `app/services/extraction_service.py` — orchestrates: fetch `.eml` from R2 → pipeline → persist (built in Phase 3; template `success_count`/`failure_count` update deferred to template work)
+- [x] 🔧 `Decimal` flows end-to-end (asserted in tests; amounts serialized as strings in outbox payloads)
+- [x] 🔧 **Local e2e replay (2026-08-04):** booted the API locally and replayed both real R2 emails through `/internal/email-received` with real R2 fetches — `non_financial` + `forwarding_verification` rows, `forwarding.verification` outbox event carrying the real Google confirmation URL, one-time `alias.first_email_received`, `emails_received=2`, live duplicate replay → `duplicate:true`
 
 **Phase 4 complete when:** auto-forwarding a real bank alert end-to-end (Cloudflare → R2 → queue → FastAPI) produces a populated `ExtractionResult` with `email_type=bank_alert`.
+
+> **Status: core proven locally 2026-08-04** (R2 → pipeline → rows → outbox, all through the live service). Remaining for full completion: deploy FastAPI (Phase 9) + Consumer Worker, then a real bank alert through the Cloudflare path — also pending: any alert-shaped emails arriving at the alias (none in R2 yet as of 2026-08-04).
 
 ---
 
