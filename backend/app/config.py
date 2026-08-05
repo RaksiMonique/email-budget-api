@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket_name: str = "email-budget-raw"
 
+    # encrypts the budgeting-app webhook secret at rest (see security/crypto.py)
+    secret_encryption_key: str = ""
+    # outbox poller (disabled in tests; tests call process_due directly)
+    enable_outbox_poller: bool = True
+
     sentry_dsn: str = ""
 
     @field_validator("database_url")

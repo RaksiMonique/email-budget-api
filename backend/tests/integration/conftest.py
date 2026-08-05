@@ -10,6 +10,8 @@ os.environ.setdefault(
     "postgresql+asyncpg://postgres:postgres@localhost:5432/email_budget_test",
 )
 os.environ.setdefault("INTERNAL_SECRET", "test-internal-secret")
+os.environ.setdefault("SECRET_ENCRYPTION_KEY", "test-encryption-key-material")
+os.environ.setdefault("ENABLE_OUTBOX_POLLER", "false")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

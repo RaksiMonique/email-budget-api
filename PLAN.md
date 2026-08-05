@@ -35,7 +35,7 @@ Traceability for this revision; the plan body below already reflects all of thes
 4. **Outbound webhook uses the outbox pattern in MVP** (pulled forward from Phase 3). `asyncio.sleep` retry loops die on redeploy; a `webhook_outbox` table + poller does not.
 5. **Edge alias validation.** The Email Worker validates the alias (`GET /internal/aliases/{alias_hash}`, cached) *before* writing to R2 or enqueuing — closes the catch-all abuse hole.
 6. **Alias token hardened** from 8-char hex (~32 bits) to `secrets.token_urlsafe(12)` (~72 bits).
-7. **Dedup suppresses only exact matches** (`duplicate_confidence = 1.0`); anything less is flagged, never suppressed — matches the "0% false suppression" target.
+7. **Dedup suppresses only exact matches** (`duplicate_confidence = 1.0`); anything less is flagged, never suppressed — matches the "0% false suppression" target. *(Superseded 2026-08-05: even exact matches are now **flag-only** — day-granularity fingerprints collide on legitimate identical same-day purchases, so nothing is ever auto-suppressed; see Phase 5.)*
 8. **Confidence routing fixed.** Two routes only (`pending_review` vs `extraction_failed`); the 0.85 line is a confidence *badge*, not a second route. Auto-confirm stays OFF for MVP (a one-line policy flip later via `auto_approve_threshold`).
 9. **Money is `Decimal` end-to-end.** `DECIMAL(15,4)` + `currency CHAR(3)` in the schema (already correct); enforce `Decimal` in code, never `float()`, and serialize amounts in webhooks as strings — never JSON floats.
 10. **Doc reconciliation task** added to Phase 0 — ~20 docs still describe the pre-redesign stack (Postmark/Clerk/Nylas/Celery/Redis), which is how the plan drifted in the first place.
@@ -316,14 +316,16 @@ These must be done before any code or Cloudflare setup.
 
 > Docs: [docs/duplicate-detection/duplicate-detection.md](docs/duplicate-detection/duplicate-detection.md)
 
-- [ ] 🔧 `app/services/duplicate_service.py`:
-  - Email-level dedup: `message_id` uniqueness per `external_user_id` (already enforced in the webhook)
+- [x] 🔧 `app/services/duplicate_service.py` (built 2026-08-04):
+  - Email-level dedup: `r2_key` (primary) + alias-scoped `message_id` in the webhook handler
   - Transaction-level dedup:
-    - Fingerprint: `SHA-256(normalized_amount + normalized_merchant + transaction_date)` (amount normalized from `Decimal` → minor-unit integer string so JMD/USD never collide)
-    - Query `extraction_results` for the fingerprint, **scoped to `external_user_id`**
-    - **Suppress only on exact match** (`duplicate_confidence = 1.0` → status=`duplicate_suppressed`)
-    - Anything short of an exact fingerprint match → create a `DuplicateMatch` and **flag** it (status stays `pending_review`); never suppress `< 1.0` in MVP
-    - Fuzzy matching (`pg_trgm`, the 0.60–0.99 band) is Phase 2 — keep the suppress-only-exact rule so that band never silently drops a unique transaction
+    - [x] Fingerprint: SHA-256 over minor-unit amount + currency + normalized merchant + date (computed in the pure pipeline)
+    - [x] Query scoped to `external_user_id`; matches only **live** rows (`pending_review`/`confirmed`) — a dismissed/failed earlier row is not evidence of duplication
+    - [x] **FLAG-ONLY (policy revised 2026-08-05):** exact fingerprint match → `duplicate_confidence = 1.0` + `DuplicateMatch` row + badge in the webhook payload, **status stays `pending_review`** — the user resolves it in the budgeting app
+    - **Why no auto-suppression at all:** the fingerprint has *day* granularity, so two legitimate identical same-day purchases (two transit taps, two coffees) collide — auto-suppressing would silently lose real transactions, violating the "0% false suppression" success criterion. The review fleet's skeptics initially killed this finding as "working as designed"; overridden on the metric's plain reading. Auto-suppression may return in Phase 2 with stronger evidence (card_last4 + time proximity).
+    - Fuzzy matching (`pg_trgm`, the 0.60–0.99 band) is Phase 2 — also flag-only
+
+**Phase 5 status: ✅ complete 2026-08-05 (flag-only)** — tested: same transaction via two different emails flags the second (both live, both webhook events, badge on the flagged one); dismissed earlier row does *not* flag.
 
 ---
 
@@ -331,14 +333,16 @@ These must be done before any code or Cloudflare setup.
 
 > Docs: [docs/api/api-skeleton.md](docs/api/api-skeleton.md)
 
-- [ ] 🔧 `GET /api/v1/extractions` — paginated; filter by `external_user_id`, `status`, date range
-- [ ] 🔧 `GET /api/v1/extractions/{id}` — full detail incl. `field_confidences`, `duplicate_matches` (amounts as decimal strings)
-- [ ] 🔧 `GET /api/v1/extractions/{id}/preview` — fields + raw snippet for the review UI
-- [ ] 🔧 `POST /api/v1/extractions/{id}/confirm` — idempotent
-- [ ] 🔧 `POST /api/v1/extractions/{id}/dismiss` — with reason
-- [ ] 🔧 `POST /api/v1/extractions/{id}/reprocess` — re-fetch from R2, re-run pipeline
-- [ ] 🔧 `POST /api/v1/feedback/category` — confirmed category → after 3+ same-merchant/same-category confirmations, create/update a `merchant_rules` entry
-- [ ] 🔧 `GET /api/v1/stats/extraction?external_user_id=` — success rate, top senders, top failures
+- [x] 🔧 `GET /api/v1/extractions` — paginated; filter by `external_user_id`, `status`, date range
+- [x] 🔧 `GET /api/v1/extractions/{id}` — full detail incl. `field_confidences`, `duplicate_matches` (amounts as **canonical** decimal strings — `normalize()`d so DB scale-padding never leaks)
+- [x] 🔧 `GET /api/v1/extractions/{id}/preview` — fields + per-field raw snippets
+- [x] 🔧 `POST /api/v1/extractions/{id}/confirm` — idempotent (repeat returns same result, doesn't clobber category); confirm-after-dismiss → 409
+- [x] 🔧 `POST /api/v1/extractions/{id}/dismiss` — with reason; idempotent; dismiss-after-confirm → 409
+- [x] 🔧 `POST /api/v1/extractions/{id}/reprocess` — re-fetch from R2, re-run pipeline, update in place via the **same field-mapper as initial persistence** (can't drift); confirmed/dismissed rows protected (409)
+- [x] 🔧 `POST /api/v1/feedback/category` — 3+ same-merchant/category confirmations → exact-match `merchant_rules` row (priority 50, outranks seeds). *Known seam: DB rules are not yet consumed by the pure pipeline (seed constants only) — wire in Phase 2 alongside rule caching.*
+- [x] 🔧 `GET /api/v1/stats/extraction?external_user_id=` — totals by status, success rate, top senders, top failing senders
+
+**Phase 6 status: ✅ complete 2026-08-04** — full lifecycle tested (list/detail/preview/confirm-idempotent/409s/reprocess/feedback-rule-creation/stats).
 
 ---
 
@@ -346,16 +350,26 @@ These must be done before any code or Cloudflare setup.
 
 > Docs: [docs/api/webhook-strategy.md](docs/api/webhook-strategy.md)
 
-- [ ] 🔧 `POST /api/v1/config/webhook` — store webhook URL + encrypted secret
-- [ ] 🔧 `POST /api/v1/config/webhook/test` — send a test payload, return delivery result
-- [ ] 🔧 `app/services/webhook_delivery_service.py`:
-  - Events are enqueued to `webhook_outbox` transactionally during extraction (Phase 4) — never delivered inline in the request (so queue-ack never depends on the budgeting app being up)
-  - A poller (FastAPI startup background loop **or** Cloudflare Cron) claims due rows (`status=pending AND next_attempt_at <= now`), signs HMAC-SHA256 + timestamp, `POST`s to `target_url`
-  - On 2xx → `status=delivered`, stamp `delivered_at`. On failure → increment `attempts`, set `next_attempt_at` by backoff **immediate → 1m → 5m → 15m → 1h**, then `status=failed` (surfaced for inspection)
-  - Replaces the `asyncio.sleep` retry loop, which does not survive redeploys
-- [ ] 🔧 Enqueue `extraction.created` after successful extraction; `extraction.failed` after failure
-- [ ] 🔧 Enqueue `forwarding.verification` when the pipeline yields `status=forwarding_verification` — payload: `{alias_hash, provider, code, confirmation_url, received_at}` (powers in-app Gmail forwarding setup)
-- [ ] 🔧 Optional: enqueue `alias.first_email_received` (once per alias, on its first accepted email of **any** classification) — needed because a non-financial first email fires no extraction webhook; push-style complement to the `emails_received` polling signal
+- [x] 🔧 `POST /api/v1/config/webhook` — stores URL + secret **encrypted at rest** (Fernet via `SECRET_ENCRYPTION_KEY`; rotation invalidates stored config — re-POST after rotating)
+- [x] 🔧 `POST /api/v1/config/webhook/test` — sends a signed test payload, returns delivery result
+- [x] 🔧 `app/services/webhook_delivery_service.py` (built 2026-08-04):
+  - Events enqueued transactionally during extraction; never delivered inline
+  - Lifespan-started poller claims due rows (`FOR UPDATE SKIP LOCKED`), signs **HMAC-SHA256 over `{timestamp}.{body}`** (`X-EmailBudget-Signature` + `X-EmailBudget-Timestamp`), POSTs; state all in Postgres → redeploy-safe by construction
+  - 2xx → `delivered`; failure → backoff immediate → 1m → 5m → 15m → 1h → `failed` (surfaced, never silently lost)
+  - No webhook config yet → rows deferred without burning attempts
+  - Delivery is **at-least-once** (`event_id` in the envelope for receiver-side idempotency)
+- [x] 🔧 `extraction.created` / `extraction.failed` enqueued (Phase 3/4)
+- [x] 🔧 `forwarding.verification` enqueued (Phase 3/4)
+- [x] 🔧 `alias.first_email_received` enqueued once per alias (Phase 3/4)
+
+**Phase 7 status: ✅ complete 2026-08-05** — tested: secret ciphertext at rest, receiver-side HMAC verification of a real delivery, 5-attempt backoff → `failed`, no-config deferral.
+
+**Adversarial review of Phases 5–7 (25-agent workflow, 2026-08-05): 11 findings → 5 confirmed → all fixed, +1 killed finding overridden** (regression-tested, 31/31 green):
+1. **Flag-only dedup** (the override — see Phase 5 rationale)
+2. Reprocess now re-runs duplicate flagging, resets stale `DuplicateMatch`/confidence artifacts, updates the email status, and **rejects reclassified emails** (409) instead of writing off-vocabulary statuses like `non_financial` into extraction rows
+3. Undecryptable webhook secret (key rotation) → delivery **defers** with a loud log instead of stalling the whole outbox in a 5s error loop
+4. Non-`HTTPError` exceptions (e.g. `httpx.InvalidURL`) now fail the **row** with backoff, not the whole batch; config endpoint strictly validates URLs (422 on `http://[::1`-style input)
+5. Sentry `include_local_variables=False` — poller exceptions would otherwise ship the **decrypted** webhook secret in stack-frame locals
 
 ---
 
@@ -422,7 +436,7 @@ These must be done before any code or Cloudflare setup.
 - [ ] Auto-forward a Chase bank alert → `email_type=bank_alert`, amount/merchant/date populated
 - [ ] Auto-forward an Amazon receipt → `ExtractionResult` with amount, merchant, date
 - [ ] Auto-forward a non-financial email (newsletter) → `status=non_financial`, no extraction
-- [ ] Auto-forward the same email twice → second yields `duplicate_confidence=1.0`, `duplicate_suppressed`
+- [ ] Auto-forward the same email twice → second is dropped by email-level dedup (`r2_key`/`message_id`, `duplicate: true`); same *transaction* via two different emails → second flagged `duplicate_confidence=1.0`, still `pending_review`
 - [ ] Forward to an **unknown/inactive alias** → dropped at the edge (no R2 object, no queue message)
 - [ ] Kill FastAPI mid-batch, restart → queue re-delivers, no email stuck in `received`
 - [ ] `POST /extractions/{id}/confirm` → `status=confirmed` (idempotent on repeat)
@@ -442,7 +456,7 @@ These must be done before any code or Cloudflare setup.
 | Extraction success rate on top-20 senders (banks + merchants) | ≥ 95% |
 | End-to-end processing time (email received → webhook enqueued) | < 10 seconds |
 | False positive rate (non-financial → financial) | < 2% |
-| Duplicate false suppression rate (unique tx suppressed) | 0% — suppress exact fingerprint matches only |
+| Duplicate false suppression rate (unique tx suppressed) | 0% **by construction** — flag-only dedup, nothing auto-suppressed in MVP |
 | Webhook delivery within 1 hour (outbox-backed) | > 99% |
 
 > Note: banks + merchants are in MVP scope. Bank alerts are short and highly templated; merchant receipts (line items, tax, tips, split shipments) are harder — expect them to consume most of the accuracy budget on the ≥95% target.

@@ -48,6 +48,8 @@ class ExtractionResult(Base):
 
     # pending_review | confirmed | dismissed | extraction_failed | duplicate_suppressed
     status: Mapped[str] = mapped_column(String(32), index=True)
+    category_confirmed: Mapped[str | None] = mapped_column(String(100))
+    dismissed_reason: Mapped[str | None] = mapped_column(Text)
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
     duplicate_confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0"))
 
