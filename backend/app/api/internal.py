@@ -45,15 +45,44 @@ def _parse_received_at(value: str) -> datetime | None:
         return None
 
 
+async def _delete_orphan(r2_key: str) -> None:
+    """Best-effort deletion of a stored object no DB row will ever own.
+    Failures are logged, not raised — the 90-day bucket lifecycle backstops."""
+    import logging
+
+    try:
+        await r2_client.delete_object(r2_key)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("orphan cleanup failed for %s: %s", r2_key, exc)
+
+
 @router.post("/email-received")
 async def email_received(
     payload: EmailReceivedPayload, db: AsyncSession = Depends(get_db)
 ) -> dict:
     alias_hash = payload.alias_hash.lower()
 
-    # 1. Alias must exist and be active (defense in depth — the Worker's edge
-    # check fails open while FastAPI is unreachable). Unknown alias → ack the
-    # queue message (200) so it doesn't retry forever; nothing is stored.
+    # Clamp queue-payload strings to column limits — an over-length header must
+    # degrade gracefully, never DataError→500→retry→DLQ (poison message).
+    r2_key = payload.r2_key[:512]
+    message_id = payload.message_id[:998] or None
+    from_address = payload.from_address[:320] or None
+
+    # 1. Idempotency FIRST (before the alias check): a queue retry of already-
+    # committed work must return duplicate regardless of alias state — the
+    # alias may have been deactivated between attempts, and this ordering is
+    # what makes the orphan-deletion below safe (no row owns this r2_key).
+    existing = (
+        await db.execute(select(ImportedEmail.id).where(ImportedEmail.r2_key == r2_key))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return {"received": True, "duplicate": True, "email_id": str(existing)}
+
+    # 2. Alias must exist and be active (defense in depth — the Worker's edge
+    # check fails open while FastAPI is unreachable). Ack (200) so the queue
+    # never retries — but DELETE the already-stored raw object first, else it
+    # is orphaned in R2 (no DB row → invisible to every purge query), which
+    # would break the user-deletion promise for post-deletion arrivals.
     # FOR UPDATE serializes concurrent deliveries for the same alias, making
     # the emails_received counter and the one-time first-email event race-free.
     alias = (
@@ -62,25 +91,12 @@ async def email_received(
         )
     ).scalar_one_or_none()
     if alias is None or not alias.is_active:
+        await _delete_orphan(r2_key)
         return {"received": True, "dropped": "unknown_or_inactive_alias"}
 
-    # Clamp queue-payload strings to column limits — an over-length header must
-    # degrade gracefully, never DataError→500→retry→DLQ (poison message).
-    r2_key = payload.r2_key[:512]
-    message_id = payload.message_id[:998] or None
-    from_address = payload.from_address[:320] or None
-
-    # 2a. Idempotency, primary: r2_key is present on every message and unique
-    # per stored email — a queue retry after a committed-but-lost 200 always
-    # carries the same r2_key. (Also enforced by a unique index.)
-    existing = (
-        await db.execute(select(ImportedEmail.id).where(ImportedEmail.r2_key == r2_key))
-    ).scalar_one_or_none()
-    if existing is not None:
-        return {"received": True, "duplicate": True, "email_id": str(existing)}
-
-    # 2b. Idempotency, secondary: alias-scoped message_id dedup catches the
-    # same email *re-forwarded* (new r2_key, same Message-ID).
+    # 3. Idempotency, secondary: alias-scoped message_id dedup catches the
+    # same email *re-forwarded* (new r2_key, same Message-ID). The incoming
+    # object is a second raw copy no row will ever own — delete it too.
     if message_id:
         existing = (
             await db.execute(
@@ -91,6 +107,7 @@ async def email_received(
             )
         ).scalar_one_or_none()
         if existing is not None:
+            await _delete_orphan(r2_key)
             return {"received": True, "duplicate": True, "email_id": str(existing)}
 
     # 3. Create the email record

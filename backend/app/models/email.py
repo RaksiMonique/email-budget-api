@@ -39,6 +39,11 @@ class ImportedEmail(Base):
     # forwarding_verification | error
     status: Mapped[str] = mapped_column(String(32), default="received", index=True)
     processing_errors: Mapped[str | None] = mapped_column(Text)
+    # user-requested deletion (30-day grace): the maintenance loop purges the
+    # R2 object and nulls r2_key once this passes (PLAN.md Phase 8)
+    pending_deletion_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

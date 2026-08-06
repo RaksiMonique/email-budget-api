@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # outbox poller (disabled in tests; tests call process_due directly)
     enable_outbox_poller: bool = True
 
+    # privacy / retention (Phase 8) — the R2 bucket's own 90-day lifecycle
+    # rule is the belt; this app-level sweep is the suspenders + DB pointer hygiene
+    retention_days: int = 90
+    deletion_grace_days: int = 30
+    enable_maintenance_loop: bool = True
+
     sentry_dsn: str = ""
 
     @field_validator("database_url")

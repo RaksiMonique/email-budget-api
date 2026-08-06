@@ -55,7 +55,7 @@ These must be done before any code or Cloudflare setup.
   - [x] Bucket created 2026-07-27 (Standard storage class, via wrangler)
   - [x] Lifecycle rule `delete-raw-eml-after-90-days`: expire objects after 90 days (verified via `lifecycle list`)
   - [x] R2 API token created (scoped to bucket, Object Read & Write) → keys in `.env`; **verified 2026-07-27 with a PUT→GET→DELETE round-trip via boto3**
-- [ ] ⛅ Create a Render account (or confirm existing) — hosting decided 2026-07-26: **Render**, replacing Railway. *Sole remaining Phase 0 item; not needed until Phase 9 — sign up at [render.com](https://render.com) with GitHub login whenever convenient.*
+- [x] ⛅ Render account confirmed (2026-08-05) — **Phase 0 fully complete.**
 - [x] 🔧 Initialize git repository (branch `main`; `.gitignore`, `README.md`, `.env.example` added — not yet committed)
 - [x] 🔧 Create project folder structure (scaffolded to CURRENT architecture: `backend/app/{extraction,services,…}`, `workers/{email-ingest,email-queue-consumer}`, `backend/tests/fixtures/eml/`)
 - [x] 🔧 **Doc reconciliation:** current architecture is [docs/architecture/redesign-summary.md](docs/architecture/redesign-summary.md); ~20 docs still reference the removed stack (Postmark/Clerk/Nylas/Celery/Redis).
@@ -377,13 +377,23 @@ These must be done before any code or Cloudflare setup.
 
 > Docs: [docs/security/privacy-compliance.md](docs/security/privacy-compliance.md)
 
-- [ ] 🔧 `DELETE /api/v1/users/{external_user_id}/data`:
-  - Deactivate all aliases for this user
-  - Schedule all `ImportedEmail` R2 objects for deletion (`pending_deletion_at = NOW() + 30 days`)
-  - Return count scheduled
-- [ ] 🔧 `GET /api/v1/users/{external_user_id}/data-export` — stub (Phase 2 full impl)
-- [ ] ⛅ R2 lifecycle rule to delete objects past `pending_deletion_at`, OR a nightly Cron Worker that lists + deletes expired objects
-- [ ] 🔧 Retention job (Cron Worker or scheduled FastAPI task): delete R2 objects where `received_at < NOW() - retention_days AND r2_key IS NOT NULL`, then null `r2_key`
+- [x] 🔧 `DELETE /api/v1/users/{external_user_id}/data` (built 2026-08-05):
+  - Deactivates all the user's aliases (new mail then drops at the edge/webhook)
+  - Schedules R2 deletion: `pending_deletion_at = NOW() + deletion_grace_days` (30) — idempotent, only rows not already scheduled
+  - Returns counts; audit-logged
+- [x] 🔧 `GET /api/v1/users/{external_user_id}/data-export` — honest 501 stub pointing at Phase 2 (extractions remain queryable via the API meanwhile)
+- [x] ⛅→🔧 Deletion executor: **app-level hourly maintenance loop** (lifespan task, same redeploy-safe pattern as the outbox poller) purges grace-expired objects + nulls `r2_key`; the bucket's existing **90-day lifecycle rule (set in Phase 0)** is the independent storage-layer backstop — no separate Cron Worker needed for MVP
+- [x] 🔧 Retention sweep in the same loop: `received_at < NOW() - retention_days (90)` → delete R2 object, null `r2_key`; missing objects tolerated (lifecycle may win the race), transient R2 failures retried next sweep
+- MVP scope note: raw email content is what's deleted; extraction rows/snippets survive until Phase 2's full GDPR deletion/export
+
+**Phase 8 status: ✅ complete 2026-08-05 (39/39 suite green after review).**
+
+**Adversarial review (12-agent workflow, 2026-08-05): 5 findings → all 5 addressed:**
+1. **[the important one] Drop paths orphaned raw emails in R2** — an email arriving *after* a deletion request (or a re-forwarded duplicate) was acked with its stored object left row-less in R2, invisible to every purge query until the 90-day lifecycle. Fixed: r2_key dedup hoisted **above** the alias check (a retry of committed work returns `duplicate` regardless of alias state — which also makes the next part safe), then both drop paths best-effort delete the incoming object no row will ever own. Regression tests cover the post-deletion arrival, the retry-owns-object case, and the re-forward copy.
+2. Audit-log counts moved out of the `String(32)` status column (a large user's deletion would 500 + roll back forever) — counts go to logs.
+3. R2 network I/O no longer runs under row locks (`FOR UPDATE` dropped; the pointer-null UPDATE is idempotent, so overlapping sweeps are harmless).
+4. Purge sweeps now **drain** (up to 50 × 100-row batches per sweep) instead of a hard 100/hour cap that would miss the 30-day promise for large mailboxes.
+5. Batch selection is random-ordered so permanently-failing rows can't occupy the same slots every sweep and starve the rest.
 
 ---
 
