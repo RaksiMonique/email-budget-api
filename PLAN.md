@@ -401,8 +401,8 @@ These must be done before any code or Cloudflare setup.
 
 ### Render deployment
 
-- [ ] 🔧 `backend/Dockerfile`
-- [ ] 🔧 Optional: `render.yaml` Blueprint (web service + Postgres as code — keeps infra reviewable in git)
+- [x] 🔧 `backend/Dockerfile` (built + smoke-tested in-container 2026-08-06: healthz 200; prod mode serves no openapi/docs; caught missing `cryptography` dep in the process)
+- [x] 🔧 `render.yaml` Blueprint at repo root (web service + Postgres 16 basic-256mb as code; secrets `sync: false` — entered once in the dashboard)
 - [ ] ⛅ Create Render **Web Service** from the GitHub repo (runtime: Docker, root dir `backend/`)
   - ⚠️ **Starter ($7/mo) or higher** — free instances spin down after ~15 min idle and cold-start in ~30–60s, which breaks the <10s processing target and delays every first email after a quiet period
   - Set a health check path (e.g. `/healthz` — add the endpoint in Phase 3's `main.py`)

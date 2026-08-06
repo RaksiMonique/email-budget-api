@@ -1,0 +1,39 @@
+# Render Blueprint — apply via dashboard: New + → Blueprint → select this repo.
+# Infra-as-code for PLAN.md Phase 9. Secret values (sync: false) are entered
+# once in the Render dashboard, never committed.
+
+services:
+  - type: web
+    name: email-budget-api
+    runtime: docker
+    rootDir: backend
+    plan: starter # free tier spin-down breaks the <10s email-processing target
+    healthCheckPath: /healthz
+    preDeployCommand: alembic upgrade head
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: email-budget-db
+          property: connectionString
+      - key: INTERNAL_SECRET
+        sync: false
+      - key: SECRET_ENCRYPTION_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: email-budget-raw
+      - key: SENTRY_DSN
+        sync: false
+
+databases:
+  - name: email-budget-db
+    plan: basic-256mb # free Postgres expires after 30 days — not for real data
+    postgresMajorVersion: "16"
