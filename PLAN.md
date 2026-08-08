@@ -211,8 +211,8 @@ These must be done before any code or Cloudflare setup.
   - Consume `email-processing` (batch size 10)
   - `POST /internal/email-received` to FastAPI with `X-Internal-Secret`
   - `message.ack()` on 200; `message.retry()` on non-200 (FastAPI processes synchronously, so 200 means fully stored — see Phase 3)
-- [ ] ⛅ Set Worker env: `FASTAPI_INTERNAL_URL`, `INTERNAL_SECRET` (`openssl rand -hex 32`) — *deferred to Phase 9 wiring*
-- [ ] ⛅ Deploy Consumer Worker; bind queue as consumer — **deliberately NOT deployed until FastAPI is reachable** (an attached consumer with no API burns every message's retries into the DLQ; deploy-gate note in its `wrangler.toml`). Queue messages meanwhile expire per queue retention (~4 days) — harmless: raw `.eml`s persist in R2 and are replayable.
+- [x] ⛅ Set Worker env: `FASTAPI_INTERNAL_URL` (var) + `INTERNAL_SECRET` (secret) — done 2026-08-08 in Phase 9 wiring
+- [x] ⛅ Deploy Consumer Worker + bind queue as consumer (2026-08-08; queue shows 1 consumer). Was correctly deploy-gated until FastAPI existed.
 
 **Phase 2 complete when:** auto-forwarding to a *known* alias produces an R2 object + a queue message, and forwarding to an *unknown* alias is dropped at the edge.
 
@@ -403,22 +403,21 @@ These must be done before any code or Cloudflare setup.
 
 - [x] 🔧 `backend/Dockerfile` (built + smoke-tested in-container 2026-08-06: healthz 200; prod mode serves no openapi/docs; caught missing `cryptography` dep in the process)
 - [x] 🔧 `render.yaml` Blueprint at repo root (web service + Postgres 16 basic-256mb as code; secrets `sync: false` — entered once in the dashboard)
-- [ ] ⛅ Create Render **Web Service** from the GitHub repo (runtime: Docker, root dir `backend/`)
-  - ⚠️ **Starter ($7/mo) or higher** — free instances spin down after ~15 min idle and cold-start in ~30–60s, which breaks the <10s processing target and delays every first email after a quiet period
-  - Set a health check path (e.g. `/healthz` — add the endpoint in Phase 3's `main.py`)
-- [ ] ⛅ Create **Render PostgreSQL** instance
-  - ⚠️ Free Postgres **expires after 30 days** (14-day grace, then deleted) — use a paid tier for anything holding real data
-  - Render issues `DATABASE_URL` as `postgres://…` — `config.py` must rewrite the scheme to `postgresql+asyncpg://`
-  - Use the **internal** connection URL (same-region private network) for the app
-- [ ] ⛅ Set env vars: `DATABASE_URL`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `INTERNAL_SECRET`, `SENTRY_DSN`, `ENVIRONMENT=production`
-- [ ] 🔧 `alembic upgrade head` as Render **Pre-Deploy Command** (paid-instance feature — Starter covers it)
-- [ ] ⛅ Auto-deploy on push to `main` (Render default when connected to GitHub)
-- [ ] ⛅ Update Consumer Worker `FASTAPI_INTERNAL_URL` → `https://<service>.onrender.com`; redeploy
+- [x] ⛅ Render **Web Service** live at **`https://email-budget-api.onrender.com`** (Docker, root dir `backend/`, region Ohio, `/healthz` check) — **FREE tier for now** (spin-down + ~50s cold start accepted for pre-launch testing; upgrade to Starter before real users / the <10s target)
+- [x] ⛅ Database is **external Neon** (free, non-expiring), not Render Postgres — migrated + seeded + verified (see DB note below)
+- [x] ⛅ Env vars set in Render (`DATABASE_URL`=Neon, R2_*, `INTERNAL_SECRET`, `SECRET_ENCRYPTION_KEY`, `ENVIRONMENT=production`, `RUN_MIGRATIONS=true`)
+- [x] 🔧 Migrations run at **container boot** via `RUN_MIGRATIONS` (free tier has no Pre-Deploy Command) — idempotent
+- [x] ⛅ Auto-deploy on push to `main` (proven: the `sslmode` fix auto-deployed once pushed)
+- [x] ⛅ Consumer Worker `FASTAPI_INTERNAL_URL` → the Render URL (done in Cloudflare section below)
+
+> **Verified from the public internet 2026-08-08:** `/healthz` 200; `/openapi.json` + `/docs` 404 (prod lockdown); authed aliases API + internal edge check return live Neon data; bad key → 401, missing internal secret → 403. Full deployed pipeline proven: a real bank alert POSTed to the deployed `/internal/email-received` → real R2 fetch → Neon `ExtractionResult` (Amazon / USD 45.99 / high / pending_review) read back via the prod API.
+>
+> **DB note:** Neon direct connection; `db/session.py:prepare_asyncpg_url` strips libpq `sslmode`/`channel_binding` and sets asyncpg `ssl` — the initial Render deploy failed with `connect() got 'sslmode'` until that fix (`50e45b9`) was pushed.
 
 ### Cloudflare Workers final deploy
 
-- [ ] ⛅ Deploy Email Worker + Consumer Worker to production (`wrangler deploy --env production`)
-- [ ] ⛅ Confirm catch-all rule points to the production Email Worker
+- [x] ⛅ Email Worker redeployed to prod (version `5baed1a5`) + Consumer Worker deployed (version `9de3cfd9`), both wired to the Render URL with `INTERNAL_SECRET`; queue `email-processing` now shows **1 producer + 1 consumer**
+- [x] ⛅ Catch-all rule → production Email Worker (set in Phase 2, unchanged)
 
 ### Sentry
 
