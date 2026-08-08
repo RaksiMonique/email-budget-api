@@ -12,13 +12,17 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 import app.models  # noqa: F401 — registers every table on Base.metadata
 from app.config import get_settings
 from app.db.base import Base
+from app.db.session import prepare_asyncpg_url
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# same normalization the app engine uses — so boot-time migrations against a
+# managed provider (Neon/Supabase) get TLS + pooler-safe settings too
+_db_url, _db_connect_args = prepare_asyncpg_url(get_settings().database_url)
+config.set_main_option("sqlalchemy.url", _db_url)
 
 
 def run_migrations_offline() -> None:
@@ -39,10 +43,10 @@ def _do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    connectable = create_async_engine(
+        _db_url, poolclass=pool.NullPool, connect_args=_db_connect_args
     )
     async with connectable.connect() as connection:
         await connection.run_sync(_do_run_migrations)

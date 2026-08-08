@@ -20,10 +20,11 @@ services:
         value: production
       - key: RUN_MIGRATIONS
         value: "true"
+      # external managed Postgres (Neon/Supabase free tier) — paste in dashboard.
+      # Render's own free Postgres expires 30 days after creation, so we use an
+      # external provider instead. Use the DIRECT/session connection string.
       - key: DATABASE_URL
-        fromDatabase:
-          name: email-budget-db
-          property: connectionString
+        sync: false
       - key: INTERNAL_SECRET
         sync: false
       - key: SECRET_ENCRYPTION_KEY
@@ -39,10 +40,5 @@ services:
       - key: SENTRY_DSN
         sync: false
 
-databases:
-  - name: email-budget-db
-    # FREE tier: 1 GB, EXPIRES 30 DAYS after creation (14-day grace, then
-    # deleted!). Fine for the testing window — upgrade or dump/restore before
-    # the deadline. Note the creation date when you apply this.
-    plan: free
-    postgresMajorVersion: "16"
+# No `databases:` block — Postgres is an external managed provider
+# (Neon / Supabase), set via the DATABASE_URL secret above.
