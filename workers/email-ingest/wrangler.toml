@@ -17,6 +17,8 @@ queue = "email-processing"
 
 [vars]
 ALIAS_DOMAIN = "fintrack.raksimoni.com"
-# FASTAPI_INTERNAL_URL — set when the FastAPI service is live (Phase 9); until
-# then edge alias validation fails open and the webhook re-validates.
+FASTAPI_INTERNAL_URL = "https://email-budget-api.onrender.com"
 # INTERNAL_SECRET — set via: wrangler secret put INTERNAL_SECRET
+# NOTE: on free-tier Render (spin-down), the 5s edge-check often times out and
+# fails OPEN — the webhook re-validates, so unknown aliases still drop, just
+# after the R2 write. Edge rejection becomes effective on a warm (paid) instance.
