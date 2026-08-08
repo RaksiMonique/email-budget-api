@@ -7,13 +7,19 @@ services:
     name: email-budget-api
     runtime: docker
     rootDir: backend
-    plan: starter # free tier spin-down breaks the <10s email-processing target
+    # FREE for pre-launch testing (decided 2026-08-08). Accepted trade-offs:
+    # spin-down after ~15 min idle (first email after a quiet spell takes
+    # ~1 min — queue retries absorb it), and no preDeployCommand on free —
+    # migrations run at container boot via RUN_MIGRATIONS instead.
+    # Upgrade to starter before real users / the <10s target matters.
+    plan: free
     healthCheckPath: /healthz
-    preDeployCommand: alembic upgrade head
     autoDeploy: true
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: RUN_MIGRATIONS
+        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: email-budget-db
@@ -35,5 +41,8 @@ services:
 
 databases:
   - name: email-budget-db
-    plan: basic-256mb # free Postgres expires after 30 days — not for real data
+    # FREE tier: 1 GB, EXPIRES 30 DAYS after creation (14-day grace, then
+    # deleted!). Fine for the testing window — upgrade or dump/restore before
+    # the deadline. Note the creation date when you apply this.
+    plan: free
     postgresMajorVersion: "16"

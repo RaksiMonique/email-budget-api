@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir .
 COPY alembic.ini ./
 COPY alembic ./alembic
 
-# Render injects PORT; default for local docker runs
+# Render injects PORT; default for local docker runs.
+# RUN_MIGRATIONS=true runs alembic at boot (free tier has no preDeployCommand);
+# migration failure must abort the boot, not serve against a stale schema.
 ENV PYTHONUNBUFFERED=1
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" = \"true\" ]; then alembic upgrade head || exit 1; fi; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

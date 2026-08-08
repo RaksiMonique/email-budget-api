@@ -36,8 +36,10 @@ export default {
               "X-Internal-Secret": env.INTERNAL_SECRET,
             },
             body: JSON.stringify(message.body),
-            // Synchronous pipeline runs 1-5s; allow slow cold paths.
-            signal: AbortSignal.timeout(30_000),
+            // Synchronous pipeline runs 1-5s, BUT free-tier Render spins down
+            // after idle and cold-starts in ~30-60s — the timeout must outlast
+            // a cold start or every first-email-after-idle burns a retry.
+            signal: AbortSignal.timeout(75_000),
           },
         );
         if (res.ok) {
