@@ -104,6 +104,39 @@ def test_ncb_gmail_double_forward_unwraps_nested():
     assert r.confidence_band == "high"
 
 
+def test_unknown_bank_extracts_via_generic_labels_no_template():
+    """A bank we have NO template for, using standard labels (Merchant:/Amount:/
+    Date:/Card ending), must extract fully via the generic label tier — merchant
+    included — and land as pending_review (not extraction_failed)."""
+    r = _run("generic_labeled_bank.eml")
+
+    assert r.resolved_sender.domain == "caribcreditunion.test"  # not in registry
+    assert r.classification.method == "subject"  # financial via subject keyword
+    assert r.value("amount") == Decimal("1299.00")
+    assert r.value("currency") == "JMD"
+    assert r.value("transaction_date") == date(2026, 8, 7)
+    assert r.value("card_last4") == "5567"
+    assert r.merchant_normalized == "Pricesmart Portmore"
+    # generic path = regex method, so lower confidence than a template
+    assert r.fields["merchant"].method == "regex"
+    assert r.status == Status.PENDING_REVIEW
+    assert r.confidence_band == "low_confidence"
+
+
+def test_amount_only_is_partial_review_not_failure():
+    """Just an amount (no merchant/date) must surface as a partial pending_review
+    for the user to complete — NOT extraction_failed. Missing fields stay blank
+    (never guessed)."""
+    r = _run("partial_amount_only.eml")
+
+    assert r.value("amount") == Decimal("82.50")
+    assert r.value("currency") == "USD"
+    assert r.merchant_normalized is None      # blank, not fabricated
+    assert r.value("transaction_date") is None
+    assert r.status == Status.PENDING_REVIEW   # not extraction_failed
+    assert r.confidence_band == "low_confidence"
+
+
 def test_gmail_forwarding_verification_detected():
     r = _run("gmail_forwarding_verification.eml")
 

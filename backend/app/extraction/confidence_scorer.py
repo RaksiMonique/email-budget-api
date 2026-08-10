@@ -31,7 +31,14 @@ def score(fields: dict[str, Field]) -> tuple[float, dict[str, float]]:
 
 
 def route(overall: float, fields: dict[str, Field]) -> tuple[Status, str]:
-    missing_required = any(k not in fields for k in REQUIRED_FIELDS)
-    if missing_required or overall < FAIL_BELOW:
+    """An **amount is the floor** for a usable extraction. With one, always route
+    to `pending_review` — partial data the user completes (missing merchant/date
+    left blank, never guessed) beats a hard failure, so a new bank with no
+    template still lands as a reviewable transaction. The band signals how
+    complete/confident it is; only a *missing amount* is a true failure.
+    """
+    if "amount" not in fields:
         return Status.EXTRACTION_FAILED, "n/a"
-    return Status.PENDING_REVIEW, ("high" if overall >= HIGH_BAND else "low_confidence")
+    complete = all(k in fields for k in REQUIRED_FIELDS)
+    band = "high" if (complete and overall >= HIGH_BAND) else "low_confidence"
+    return Status.PENDING_REVIEW, band

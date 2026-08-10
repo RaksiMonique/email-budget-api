@@ -1,0 +1,15 @@
+From: notify@smallbank.test
+To: k3PZx9WqL2mN8vTa@fintrack.raksimoni.com
+Subject: Transaction Notification
+Date: Fri, 07 Aug 2026 14:30:00 -0500
+Message-Id: <PARTIAL-0001@smallbank.test>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=smallbank.test;
+ s=s1; h=from:to:subject:date; bh=synthbh=; b=synthsig=
+Mime-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Hello,
+
+A transaction of USD 82.50 was processed on your account.
+
+Questions? Call our Customer Care Centre.

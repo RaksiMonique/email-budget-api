@@ -1,0 +1,20 @@
+From: alerts@caribcreditunion.test
+To: k3PZx9WqL2mN8vTa@fintrack.raksimoni.com
+Subject: Purchase Alert
+Date: Fri, 07 Aug 2026 10:00:00 -0500
+Message-Id: <GENERIC-0001@caribcreditunion.test>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=caribcreditunion.test;
+ s=s1; h=from:to:subject:date; bh=synthbh=; b=synthsig=
+Mime-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Dear Member,
+
+A purchase was made on your account.
+
+Amount: JMD 1,299.00
+Merchant: PRICESMART PORTMORE
+Transaction Date: 07/AUG/2026
+Card ending in 5567
+
+Thank you for banking with us.
