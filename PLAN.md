@@ -72,6 +72,8 @@ These must be done before any code or Cloudflare setup.
 > Docs: [docs/ai-processing/extraction-strategy.md](docs/ai-processing/extraction-strategy.md)
 >
 > **Status (2026-07-26):** the full pipeline is built and green on a synthetic Chase-alert fixture using **stdlib only** (`html2text`/`dateparser` are optional accuracy upgrades). Remaining: collect the real `.eml` corpus, add per-sender templates beyond `chase.com`, and grow the test suite from the corpus.
+>
+> **Update (2026-08-10):** **forward-unwrapping implemented** — a *manually*-forwarded bank alert destroys the bank's DKIM (becomes the forwarder's gmail DKIM) and buries the real sender in the quoted body; `sender_resolver` now detects a consumer-provider outer sender and recovers the original from the "Begin forwarded message" block (closes the #1 risk from the original review). **First real validated template: `jncb.com` (NCB Jamaica)** — proven end-to-end against a real alert (synthetic fixture, PII sanitized): `jncb.com` → `bank_alert` → `JMD 3750.00 / merchant / card / date` → `pending_review` high. `chase.com` remains synthetic-only. Body-`From` trust is spoofable → tracked by `VERIFY_SENDER_AUTH` in the security backlog (fine for MVP: flag-only, no auto-confirm).
 
 ### Corpus collection (do this first)
 
