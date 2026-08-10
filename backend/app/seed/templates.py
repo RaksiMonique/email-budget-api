@@ -9,6 +9,19 @@ from app.extraction.models import EmailType
 
 # domain -> {"email_type": EmailType, "fields": {field: [regex, ...]}}
 TEMPLATES: dict[str, dict] = {
+    # NCB Jamaica card alerts — labeled value-below-label layout (validated
+    # against a real manually-forwarded alert 2026-08-10). Amounts are JMD;
+    # dates are DD/MON/YYYY. Content arrives quote-stripped from content_preparer.
+    "jncb.com": {
+        "email_type": EmailType.BANK_ALERT,
+        "fields": {
+            "amount": [r"Amount\s*\n\s*(?:[A-Z]{3}\s*)?([\d,]+\.\d{2})"],
+            "currency": [r"Amount\s*\n\s*([A-Z]{3})\s*[\d,]+\.\d{2}"],
+            "merchant": [r"Merchant\s*\n\s*([^\n]+?)\s*\n"],
+            "transaction_date": [r"(?:^|\n)\s*Date\s*\n\s*(\d{1,2}/[A-Za-z]{3}/\d{4})"],
+            "card_last4": [r"Card Number Ending\s*\n\s*[*.\s]*(\d{4})"],
+        },
+    },
     "chase.com": {
         "email_type": EmailType.BANK_ALERT,
         "fields": {

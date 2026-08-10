@@ -39,6 +39,9 @@ except Exception:  # pragma: no cover - fallback when html2text is not installed
 
 def prepare(parsed: ParsedEmail) -> str:
     text = parsed.text_body.strip() or _html_to_text(parsed.html_body)
+    # strip forwarded-quote markers ("> ") so a manually-forwarded email's
+    # label/value lines read the same as a directly-received one
+    text = re.sub(r"(?m)^[ \t]*>+[ \t]?", "", text)
     text = _strip_footer(text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)

@@ -12,6 +12,7 @@ FINANCIAL_SENDER_REGISTRY: dict[str, EmailType] = {
     "chase.com": EmailType.BANK_ALERT,
     "bankofamerica.com": EmailType.BANK_ALERT,
     "wellsfargo.com": EmailType.BANK_ALERT,
+    "jncb.com": EmailType.BANK_ALERT,  # National Commercial Bank Jamaica (has a template)
     # payments
     "paypal.com": EmailType.PAYMENT,
     "venmo.com": EmailType.PAYMENT,

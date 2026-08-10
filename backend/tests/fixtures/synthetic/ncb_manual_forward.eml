@@ -1,0 +1,43 @@
+Delivered-To: user@gmail.com
+From: Test Forwarder <fwd.tester@gmail.com>
+To: k3PZx9WqL2mN8vTa@fintrack.raksimoni.com
+Subject: Fwd: TRANSACTION APPROVED
+Date: Mon, 10 Aug 2026 11:43:52 -0500
+Message-Id: <SYNTHETIC-FWD-0001@gmail.com>
+References: <synthetic-orig-0001@pleasant.jncb.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=gmail.com; s=20251104;
+ h=from:to:subject:date; bh=synthbh=; b=synthsig=
+Mime-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Sent from my iPhone
+
+Begin forwarded message:
+
+> From: no-reply-ncbcardalerts@jncb.com
+> Date: 6 August 2026 at 12:40:07 PM GMT-5
+> To: fwd.tester@gmail.com
+> Subject: TRANSACTION APPROVED
+>
+> Transaction
+> Approved
+> Hello Cardholder,
+> Thank you for choosing your NCB card as your payment method of choice. See transaction details below
+> Reference Number
+> 900000001
+> Card Number Ending
+> 4821
+> Card Type
+> VISA DEBIT CLASSIC
+> Date
+> 06/AUG/2026
+> Time
+> 12:26 PM
+> Amount
+> JMD 3,750.00
+> Merchant
+> SAMPLE CAFE KINGSTON
+> Status
+> APPROVED
+> Don't recognize this charge?
+> Contact us immediately via our 24/7 Customer Care Centre

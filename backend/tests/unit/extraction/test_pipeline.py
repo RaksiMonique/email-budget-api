@@ -62,6 +62,28 @@ def test_non_financial_is_skipped():
     assert r.fields == {}
 
 
+def test_ncb_manual_forward_unwraps_and_extracts():
+    """Real NCB Jamaica alert, MANUALLY forwarded (DKIM/From = gmail): the
+    forward-unwrapper must recover jncb.com from the quoted body, then the
+    NCB template extracts every field. (Synthetic — real PII sanitized.)"""
+    r = _run("ncb_manual_forward.eml")
+
+    assert r.resolved_sender.domain == "jncb.com"
+    assert r.resolved_sender.source == SenderSource.BODY  # not DKIM (which is gmail)
+    assert r.classification.email_type == EmailType.BANK_ALERT
+
+    assert r.value("amount") == Decimal("3750.00")
+    assert r.value("currency") == "JMD"
+    assert r.value("transaction_date") == date(2026, 8, 6)
+    assert r.value("card_last4") == "4821"
+    assert r.merchant_normalized == "Sample Cafe Kingston"
+    assert all(r.fields[f].method == "template" for f in ("amount", "merchant", "transaction_date"))
+
+    assert r.status == Status.PENDING_REVIEW
+    assert r.confidence_band == "high"
+    assert r.fingerprint is not None
+
+
 def test_gmail_forwarding_verification_detected():
     r = _run("gmail_forwarding_verification.eml")
 
