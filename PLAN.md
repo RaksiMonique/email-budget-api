@@ -532,6 +532,35 @@ These must be done before any code or Cloudflare setup.
 - [ ] P2 sender templates: shopify.com, squareup.com, etsy.com, and user-submitted failures
 - [ ] **Manual-forward support:** promote body-embedded sender resolution from best-effort to a supported tier once auto-forward volume is proven
 
+### Phase 2 — User-Managed Financial Sender Registry (DB-backed)
+
+> Moves `FINANCIAL_SENDER_REGISTRY` (today a hardcoded dict in `app/seed/financial_senders.py`) into the database so senders can be managed per user and learned over time. Companion to templates graduating to the `extraction_templates` table.
+
+**Product approach (recommended): the alias IS the opt-in — parse everything that arrives, and learn senders *reactively* by confirmation, not pre-declaration.** Users forward mail to a dedicated alias, so "is this financial?" is largely pre-answered by the act of forwarding. And users don't know their bank's sender domain (real example: `jncb.com` with a `no-reply-ncbcardalerts@` local part — not `ncb.com`). So instead of asking them to declare domains, surface the *observed* sender for one-tap confirmation: *"New sender `no-reply-ncbcardalerts@jncb.com` — track as financial? [Yes, my bank] / [No]."* Proactive declaration stays at the **human** level (onboarding: "which banks/cards?") to set expectations + guide the forwarding-rule setup; the domain registry is *learned*. Same philosophy as the existing merchant→category feedback loop — confirmations teach the system, no AI.
+
+**Schema — two tables replace the constant:**
+- [ ] 🔧 `financial_senders` (global, curated + community): `domain` (unique), `email_type`, `display_name`, `has_template` (bool), `scope` (`system` | `community`), `confirmation_count`, `is_active`. Seeded from today's constant as `scope=system`.
+- [ ] 🔧 `user_sender_prefs` (per-user): `external_user_id`, `domain`, `email_type`, `action` (`include` | `exclude`), `source` (`declared` | `confirmed_on_arrival`), unique(`external_user_id`, `domain`). `exclude` lets a user opt a domain out (e.g. "don't track my Amazon receipts") without affecting anyone else.
+
+**Classification** (DB-backed, cached like `merchant_rules` — 10-min TTL, invalidate on write):
+- [ ] 🔧 resolve sender → user `exclude`? → `non_financial`; else user `include` **or** global `financial_senders` hit → financial with that `email_type`; else subject-pattern fallback → financial(`unknown`) **+ a `sender_status: candidate` flag**; else `non_financial`.
+- [ ] 🔧 extraction results / webhooks expose the resolved sender + `sender_status` so the budgeting app can raise the "track this sender?" prompt reactively.
+
+**API** (budgeting-app-facing, X-API-Key):
+- [ ] 🔧 `GET /api/v1/senders?external_user_id=` — merged view (global + user include/exclude)
+- [ ] 🔧 `POST /api/v1/senders` — user adds/confirms a sender (writes `user_sender_prefs`, `source=confirmed_on_arrival`)
+- [ ] 🔧 `DELETE /api/v1/senders/{id}` — remove a user pref
+
+**Learning / community promotion** (mirrors the 3+-confirmations merchant-rule loop):
+- [ ] 🔧 a `confirmed_on_arrival` increments the global `confirmation_count`; after **N distinct users** confirm the same domain → auto-promote to `financial_senders` (`scope=community`), so users collectively discover new banks with no admin.
+
+**Template coupling (keep honest):** recognizing a sender as financial ≠ being able to extract it. A user-added sender with **no template** classifies as its type, but the general extractor can't get a merchant → `extraction_failed`. So user-added senders are **template-wanted signals** feeding `GET /admin/top-failing-senders` (drives which template to build next). Sender management and template-building are two halves of one loop.
+
+**Migration / phasing:**
+- [ ] 🔧 **2a** — Alembic tables + seed `financial_senders` from the constant on deploy; `classification_service` reads the cache instead of the dict. **No behavior change** (the constant stays the seed source of truth).
+- [ ] 🔧 **2b** — per-user CRUD API + `user_sender_prefs` include/exclude
+- [ ] 🔧 **2c** — reactive `confirmed_on_arrival` + community promotion
+
 ### Phase 2 — Budgeting App Category Integration
 
 - [ ] `POST /config/categories` — accept the budgeting app's taxonomy
