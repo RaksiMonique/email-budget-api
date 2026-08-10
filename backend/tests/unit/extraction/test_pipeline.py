@@ -146,7 +146,7 @@ def test_html_only_forward_resolves_and_extracts():
     assert r.resolved_sender.domain == "myvmgroup.com"  # recovered from HTML body
     assert r.classification.email_type == EmailType.BANK_ALERT
     assert r.value("amount") == Decimal("9500.00")
-    assert r.value("currency") == "JMD"  # J$ -> JMD
+    assert r.value("currency") == "JMD"  # bare "$" -> JMD via myvmgroup.com sender default
     assert r.value("card_last4") == "4570"
     assert r.status == Status.PENDING_REVIEW
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from app.extraction.models import REQUIRED_FIELDS, Field, Status
 
-_METHOD_CONF = {"template": 0.97, "regex": 0.75}
+_METHOD_CONF = {"template": 0.97, "regex": 0.75, "default": 0.6}
 _WEIGHTS = {"amount": 0.35, "transaction_date": 0.20, "merchant": 0.25, "currency": 0.10}
 _OPTIONAL_BONUS = {"card_last4": 0.05}
 

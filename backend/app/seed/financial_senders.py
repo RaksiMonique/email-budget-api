@@ -27,6 +27,19 @@ FINANCIAL_SENDER_REGISTRY: dict[str, EmailType] = {
     "spotify.com": EmailType.SUBSCRIPTION,
 }
 
+# Global fallback when an amount has no explicit currency (bare "$" / no code)
+# and the sender has no known default. USD is the international default.
+DEFAULT_CURRENCY = "USD"
+
+# Per-sender default currency for bare/ambiguous amounts. Jamaican banks quote
+# JMD with a bare "$", so their amounts default to JMD — while US senders and
+# unknown senders keep the global USD default (no collateral damage).
+SENDER_DEFAULT_CURRENCY: dict[str, str] = {
+    "jncb.com": "JMD",
+    "gkco.com": "JMD",
+    "myvmgroup.com": "JMD",
+}
+
 # subject keywords suggesting a financial email even from an unknown sender
 FINANCIAL_SUBJECT_PATTERNS: tuple[str, ...] = (
     r"receipt", r"invoice", r"payment", r"charged", r"purchase", r"order",

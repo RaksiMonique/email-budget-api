@@ -24,10 +24,12 @@ from decimal import Decimal, InvalidOperation
 from app.extraction.models import Field
 
 _SYMBOL_CCY = {"£": "GBP", "€": "EUR", "¥": "JPY"}
-# localized dollar signs — J$ (Jamaica), TT$ (Trinidad), etc. must NOT read as USD
+# localized dollar signs — J$ (Jamaica), TT$ (Trinidad), etc. A BARE "$" is
+# intentionally absent: it's ambiguous (JMD in JM, USD in the US), so it's left
+# as unknown here and filled from the sender's default currency in the pipeline.
 _DOLLAR_CCY = {
     "J$": "JMD", "TT$": "TTD", "BB$": "BBD", "US$": "USD", "CA$": "CAD",
-    "C$": "CAD", "A$": "AUD", "EC$": "XCD", "$": "USD",
+    "C$": "CAD", "A$": "AUD", "EC$": "XCD",
 }
 _CCY_CODES = "USD|JMD|EUR|GBP|CAD|AUD|TTD|BBD|XCD"
 _NUM_CORE = r"[\d,]+(?:\.\d{2})?"  # decimals optional: "JMD 2550" and "JMD 2,550.00"
@@ -84,8 +86,10 @@ _LABEL_STOPWORDS = {
 }
 
 
-def _ccy(token: str) -> str:
+def _ccy(token: str) -> str | None:
     token = token.strip().upper()
+    if token == "$":
+        return None  # bare dollar is ambiguous — the sender's default decides
     return _DOLLAR_CCY.get(token) or _SYMBOL_CCY.get(token) or token
 
 
@@ -156,6 +160,7 @@ def _amount(text: str) -> tuple[Decimal | None, str | None, str | None]:
             except InvalidOperation:
                 continue
             return value, (_ccy(cur_token) if cur_token else None), m.group(0)
+        # (fall through to the next scope / bare-number path)
 
     # bare number under an explicit "Amount:" label with NO currency (e.g. FGB's
     # "Amount: 670.00") — the label makes it the amount; currency stays unknown.

@@ -16,13 +16,20 @@ from app.extraction import general_extractor as G
         ("Amount: JMD 2550", "JMD", Decimal("2550")),        # decimals optional
         ("Amount: TTD 100.00", "TTD", Decimal("100.00")),
         ("Amount: 2,550.00 JMD", "JMD", Decimal("2550.00")),
-        ("Amount: $2,550.00", "USD", Decimal("2550.00")),    # bare $ defaults USD
     ],
 )
 def test_amount_and_currency(body, ccy, amt):
     f = G.extract(body)
     assert f["amount"].value == amt
     assert f["currency"].value == ccy
+
+
+def test_bare_dollar_is_ambiguous_currency():
+    # a bare "$" is ambiguous (JMD in JM, USD in the US) — the extractor leaves
+    # currency UNKNOWN; the pipeline fills it from the sender's default currency
+    f = G.extract("Amount: $2,550.00")
+    assert f["amount"].value == Decimal("2550.00")
+    assert "currency" not in f
 
 
 def test_amount_prefers_labeled_over_fee_and_balance():

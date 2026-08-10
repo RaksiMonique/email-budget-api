@@ -23,6 +23,7 @@ from app.extraction.models import (
     Field,
     Status,
 )
+from app.seed.financial_senders import DEFAULT_CURRENCY, SENDER_DEFAULT_CURRENCY
 from app.services import classification_service, rules_engine
 
 
@@ -81,6 +82,13 @@ def run(raw: bytes) -> ExtractionResult:
         classification = Classification(
             True, tmpl_type, classification.confidence, classification.method
         )
+
+    # Fill an absent currency (bare "$" or none) from the sender's default
+    # currency (JM banks → JMD) or the global default. Sender-aware, not a blind
+    # guess; marked method="default" so it adds no confidence weight.
+    if "amount" in fields and "currency" not in fields:
+        ccy = SENDER_DEFAULT_CURRENCY.get(sender.domain or "") or DEFAULT_CURRENCY
+        fields["currency"] = Field(ccy, "default")
 
     merchant_raw = fields["merchant"].value if "merchant" in fields else None
     normalized, category = rules_engine.normalize_merchant(merchant_raw)
