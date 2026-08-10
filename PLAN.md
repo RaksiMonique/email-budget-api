@@ -520,6 +520,11 @@ These must be done before any code or Cloudflare setup.
 
 ### Phase 2 — Extraction Intelligence
 
+- [ ] 🔧 **Transaction direction, status & reversals** (extraction *correctness* — surfaced by the stress test 2026-08-10; today every amount is booked as a positive charge, so a refund inflates spending):
+  - **Direction (debit vs credit)** — detect from keywords (`refund`, `reversal`, `reversed`, `credit`, `returned`, `voided`, `chargeback`, `deposit`) and any `Type`/`Transaction Type` field; store a `direction` (or signed minor-units) on `extraction_results`. A refund/credit must reduce, not add to, spending.
+  - **Status (approved/declined)** — banks also send `DECLINED`/`FAILED` alerts (NCB has a `Status` field); a declined transaction must **not** count as a spend — surface it but flag non-committing.
+  - **Reversal linking** — a reversal/void offsets an earlier charge; match it to the original (same card + amount + merchant, near in time — a fingerprint variant) and **net it out** rather than adding a second row. Reuses the dedup fingerprint machinery.
+  - Webhook payload gains `direction` + `status` so the budgeting app books each event correctly (expense vs refund/income vs ignore).
 - [ ] Fuzzy duplicate detection with `pg_trgm` (handles "Amazon" vs "AMZN MKTP") — introduces the 0.60–0.99 confidence band; keep suppress-only-exact, flag the rest
 - [ ] Bulk re-extraction after template improvement
 - [ ] Multiple aliases per user (one per card/account)
