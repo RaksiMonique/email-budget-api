@@ -16,10 +16,12 @@ from email.utils import parseaddr
 from app.extraction.models import ParsedEmail, ResolvedSender, SenderSource
 
 _DKIM_D = re.compile(r"\bd=([A-Za-z0-9.\-]+)")
-# original "From:" inside a quoted forward — tolerate leading ">" quote markers,
-# an optional display name, and addresses with or without angle brackets
+# original "From:" inside a quoted/forwarded block. Tolerate the different ways
+# mail clients render it: ">" quote markers (Apple Mail), "*From:*" asterisks
+# (Gmail forward reformatting), an optional display name, and addresses with or
+# without angle brackets.
 _BODY_FROM = re.compile(
-    r"^[>\s]*From:\s*.*?([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+)", re.MULTILINE
+    r"^[>\s*]*From:\**\s*.*?([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+)", re.MULTILINE
 )
 _ANY_ADDR = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
 
@@ -56,11 +58,14 @@ def _domain_of(addr: str) -> str | None:
 
 
 def _body_original_sender(parsed: ParsedEmail) -> str | None:
-    """The original sender from a quoted 'Begin forwarded message' block."""
+    """The original sender from a quoted forward block. Scans ALL 'From:' lines
+    and returns the first NON-consumer domain — so a forward-of-a-forward skips
+    intermediate personal accounts (gmail/…) and reaches the real bank."""
     body = parsed.text_body or parsed.html_body
-    m = _BODY_FROM.search(body)
-    if m:
-        return registered_domain(m.group(1).rsplit("@", 1)[-1])
+    for m in _BODY_FROM.finditer(body):
+        dom = registered_domain(m.group(1).rsplit("@", 1)[-1])
+        if dom and dom not in CONSUMER_SENDER_DOMAINS:
+            return dom
     return None
 
 

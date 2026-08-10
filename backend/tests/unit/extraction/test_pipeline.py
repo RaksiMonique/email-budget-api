@@ -84,6 +84,26 @@ def test_ncb_manual_forward_unwraps_and_extracts():
     assert r.fingerprint is not None
 
 
+def test_ncb_gmail_double_forward_unwraps_nested():
+    """Forward-of-a-forward via Gmail: the body carries an intermediate personal
+    'From: …@gmail.com' *before* the bank's '*From:* …@jncb.com' (Gmail's asterisk
+    reformatting, no '>' markers). The unwrapper must skip the consumer account
+    and reach jncb.com. (Synthetic — mirrors a real double-forward, PII sanitized.)"""
+    r = _run("ncb_gmail_double_forward.eml")
+
+    assert r.resolved_sender.domain == "jncb.com"
+    assert r.resolved_sender.source == SenderSource.BODY
+    assert r.classification.email_type == EmailType.BANK_ALERT
+
+    assert r.value("amount") == Decimal("3750.00")
+    assert r.value("currency") == "JMD"
+    assert r.value("transaction_date") == date(2026, 8, 6)
+    assert r.value("card_last4") == "4821"
+    assert r.merchant_normalized == "Sample Cafe Kingston"
+    assert r.status == Status.PENDING_REVIEW
+    assert r.confidence_band == "high"
+
+
 def test_gmail_forwarding_verification_detected():
     r = _run("gmail_forwarding_verification.eml")
 
