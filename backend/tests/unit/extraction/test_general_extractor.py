@@ -60,3 +60,11 @@ def test_blank_merchant_label_is_not_captured():
 def test_phone_number_is_not_an_amount():
     f = G.extract("Call 1-876-555-1234.00 now. Amount: JMD 500.00")
     assert f["amount"].value == Decimal("500.00")
+
+
+def test_bare_amount_under_label_no_currency():
+    # First Global Bank style: "Amount: 670.00" — bare number, no currency code.
+    # The explicit label makes it the amount; currency stays UNKNOWN (not guessed).
+    f = G.extract("Merchant: CHINAMAX RESTAURANT\nAmount: 670.00\nStatus: Approved")
+    assert f["amount"].value == Decimal("670.00")
+    assert "currency" not in f

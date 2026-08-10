@@ -137,6 +137,20 @@ def test_amount_only_is_partial_review_not_failure():
     assert r.confidence_band == "low_confidence"
 
 
+def test_html_only_forward_resolves_and_extracts():
+    """An HTML-only forwarded alert (no text part) — the sender resolver must
+    convert the HTML to find the quoted `From:`, reach the bank, and extract.
+    Mirrors a real VMBS alert (synthetic, sanitized)."""
+    r = _run("vmbs_html_only_forward.eml")
+
+    assert r.resolved_sender.domain == "myvmgroup.com"  # recovered from HTML body
+    assert r.classification.email_type == EmailType.BANK_ALERT
+    assert r.value("amount") == Decimal("9500.00")
+    assert r.value("currency") == "JMD"  # J$ -> JMD
+    assert r.value("card_last4") == "4570"
+    assert r.status == Status.PENDING_REVIEW
+
+
 def test_gmail_forwarding_verification_detected():
     r = _run("gmail_forwarding_verification.eml")
 

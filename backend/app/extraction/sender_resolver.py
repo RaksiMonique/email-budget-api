@@ -57,12 +57,21 @@ def _domain_of(addr: str) -> str | None:
     return None
 
 
+def _body_text(parsed: ParsedEmail) -> str:
+    """A text view of the body for sender scanning — HTML-only forwards (no text
+    part) must be converted first, else the quoted 'From:' is lost in markup."""
+    if parsed.text_body.strip():
+        return parsed.text_body
+    from app.extraction.content_preparer import _html_to_text
+
+    return _html_to_text(parsed.html_body)
+
+
 def _body_original_sender(parsed: ParsedEmail) -> str | None:
     """The original sender from a quoted forward block. Scans ALL 'From:' lines
     and returns the first NON-consumer domain — so a forward-of-a-forward skips
     intermediate personal accounts (gmail/…) and reaches the real bank."""
-    body = parsed.text_body or parsed.html_body
-    for m in _BODY_FROM.finditer(body):
+    for m in _BODY_FROM.finditer(_body_text(parsed)):
         dom = registered_domain(m.group(1).rsplit("@", 1)[-1])
         if dom and dom not in CONSUMER_SENDER_DOMAINS:
             return dom
@@ -92,7 +101,7 @@ def resolve(parsed: ParsedEmail) -> ResolvedSender:
     if from_dom:
         return ResolvedSender(from_dom, SenderSource.HEADER, 0.85)
 
-    body = parsed.text_body or parsed.html_body
+    body = _body_text(parsed)
     m = _BODY_FROM.search(body) or _ANY_ADDR.search(body)
     if m:
         raw = m.group(1)

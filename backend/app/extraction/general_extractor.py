@@ -132,11 +132,15 @@ def extract(text: str) -> dict[str, Field]:
     return fields
 
 
+_BARE_NUM = re.compile(r"\b(\d[\d,]*(?:\.\d{2})?)\b")
+
+
 def _amount(text: str) -> tuple[Decimal | None, str | None, str | None]:
     # prefer the value under an explicit Amount/Total label (so a Fee/Balance
     # line can't win); fall back to the first currency-shaped match anywhere.
     labelled = _AMOUNT_LABEL.search(text)
-    scopes = ([labelled.group(1)] if labelled else []) + [text]
+    labelled_val = labelled.group(1) if labelled else None
+    scopes = ([labelled_val] if labelled_val else []) + [text]
     for scope in scopes:
         for pat in _AMOUNT_PATTERNS:
             m = pat.search(scope)
@@ -152,6 +156,14 @@ def _amount(text: str) -> tuple[Decimal | None, str | None, str | None]:
             except InvalidOperation:
                 continue
             return value, (_ccy(cur_token) if cur_token else None), m.group(0)
+
+    # bare number under an explicit "Amount:" label with NO currency (e.g. FGB's
+    # "Amount: 670.00") — the label makes it the amount; currency stays unknown.
+    if labelled_val and (m := _BARE_NUM.search(labelled_val)):
+        try:
+            return Decimal(m.group(1).replace(",", "")), None, f"Amount: {m.group(1)}"
+        except InvalidOperation:
+            pass
     return None, None, None
 
 

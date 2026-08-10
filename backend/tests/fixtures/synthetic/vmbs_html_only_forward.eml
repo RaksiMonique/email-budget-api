@@ -1,0 +1,19 @@
+From: Budget User <user@gmail.com>
+To: k3PZx9WqL2mN8vTa@fintrack.raksimoni.com
+Subject: Fwd: card activity notification
+Date: Thu, 15 Apr 2021 09:00:00 -0500
+Message-Id: <VMBS-HTML-0001@gmail.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=gmail.com; s=s1;
+ h=from:to:subject:date; bh=synthbh=; b=synthsig=
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<div>Sent from my iPhone</div>
+<div>Begin forwarded message:</div>
+<div><b>From:</b> vmbs-noreply@myvmgroup.com</div>
+<div><b>Date:</b> 15 April 2021 at 8:40:32 AM</div>
+<div><b>Subject:</b> card activity notification</div>
+<div>Dear Member,</div>
+<div>An amount of J$9,500.00 was authorized on your VMBS card number ******4570.</div>
+</body></html>
