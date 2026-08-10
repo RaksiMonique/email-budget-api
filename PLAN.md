@@ -426,15 +426,15 @@ These must be done before any code or Cloudflare setup.
 
 ### Security checklist
 
-- [ ] 🔧 `X-Internal-Secret` ≥ 32 random bytes, not in code
-- [ ] 🔧 R2 bucket private (no public access)
-- [ ] 🔧 API keys stored hashed (bcrypt or SHA-256)
-- [ ] 🔧 Webhook secret encrypted at rest
-- [ ] 🔧 Alias tokens ≥ 72 bits (`secrets.token_urlsafe(12)`)
-- [ ] 🔧 All SQL parameterized (SQLAlchemy ORM — no raw f-strings)
-- [ ] 🔧 Rate limiting on `/internal/email-received`: max 10 concurrent per alias
-- [ ] 🔧 `secrets.compare_digest` for all HMAC/token comparisons
-- [ ] 🔧 Amounts serialized as decimal strings (never JSON floats) across all API + webhook payloads
+- [x] 🔧 `X-Internal-Secret` ≥ 32 random bytes, not in code (`openssl rand -hex 32`, env only)
+- [x] 🔧 R2 bucket private (no public access)
+- [x] 🔧 API keys stored hashed (SHA-256)
+- [x] 🔧 Webhook secret encrypted at rest (Fernet)
+- [x] 🔧 Alias tokens ≥ 72 bits (`secrets.token_urlsafe(12)`)
+- [x] 🔧 All SQL parameterized (SQLAlchemy ORM — no raw f-strings)
+- [ ] 🔧 Rate limiting on `/internal/email-received` — **NOT built; known gap** → see "Security hardening (leaked-alias abuse)" under Future Enhancements
+- [x] 🔧 `secrets.compare_digest` for internal-secret + HMAC comparisons
+- [x] 🔧 Amounts serialized as decimal strings (never JSON floats) across all API + webhook payloads
 
 ---
 
@@ -501,6 +501,20 @@ These must be done before any code or Cloudflare setup.
 ## Future Enhancements (Post-MVP)
 
 > From [docs/architecture/redesign-summary.md](docs/architecture/redesign-summary.md) Q3 and [docs/future-roadmap/roadmap.md](docs/future-roadmap/roadmap.md)
+
+### Security hardening — leaked-alias abuse (post-launch)
+
+> **Threat (identified 2026-08-10):** the alias is an unguessable bearer token (~72 bits), but if it *leaks* — it appears in the user's Sent folder, forwarding settings, and the app's settings UI — anyone who learns it can send unlimited mail to that user's alias. Blast radius is bounded (user-scoped; **no auto-confirm**, so fakes can only clutter the `pending_review` queue, never the real ledger), but the flood + spoof vectors below are real and currently unmitigated.
+
+- [ ] 🔧 **Per-alias rate limiting on `/internal/email-received`** (the "flood" gap — the Phase 9 checklist listed this but it was never built). Cap accepted emails per alias per window (e.g. N/hour); excess → drop silently (ack 200, no R2 write, no row). A DB-count check is fine for the single-instance MVP (count `imported_emails` for the alias in the window); a dedicated counter/table if it needs to scale. Drop at the Email Worker edge too, to avoid the R2 write.
+- [ ] 🔧 **Sender-authentication verification — env-configurable** via **`VERIFY_SENDER_AUTH`** (bool in `config.py`, default `false`). Today [sender_resolver.py](backend/app/extraction/sender_resolver.py) regex-extracts the DKIM `d=` domain but **never verifies the signature** — so an attacker who knows the alias can forge `From: alerts@chase.com` + a fake `DKIM-Signature: …d=chase.com` and manufacture a convincing fake `pending_review` "Chase transaction."
+  - **ON** → only trust a resolved sender domain for template matching / financial-registry classification if the message *authenticated* for that domain: read Cloudflare Email Routing's `Authentication-Results` header (the edge already runs SPF/DKIM/DMARC), or cryptographically verify DKIM.
+  - **OFF** (default for now) → current permissive behavior — needed because manual/edge-case forwarding can break strict alignment, which is exactly why it must be a toggle, not hardcoded.
+  - Tension to validate: legitimate *auto*-forwarded bank mail keeps valid original DKIM, so ON should pass real bank alerts while rejecting spoofs — confirm against the real corpus before defaulting ON in prod.
+- [ ] 🔧 **Alias rotation endpoint** (`POST /api/v1/aliases/{id}/rotate` — deactivate the leaked alias + mint a new one for the same `external_user_id`, returned to the budgeting app). Recovery path when an alias leaks; today only the manual deactivate-old + create-new sequence exists.
+- [ ] 🔧 Optional: per-alias daily caps on R2 objects / `emails_received` as a storage-abuse backstop, surfaced in `import_audit_logs`.
+
+> Run all of these through the same adversarial-review Workflow pass as the other phases before committing.
 
 ### Phase 2 — Extraction Intelligence
 
