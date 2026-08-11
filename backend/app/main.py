@@ -112,6 +112,16 @@ def create_app() -> FastAPI:
     async def healthz() -> dict:
         return {"status": "ok"}
 
+    if not prod:
+        # Dev-only Sentry self-test: forces an error so Sentry records the
+        # project's first event. Guarded out of production (like docs above) —
+        # a public error-trigger must never exist on the live service. Verify
+        # locally with SENTRY_DSN set, per Sentry's own localhost instructions.
+        @app.get("/sentry-debug", include_in_schema=False, tags=["ops"])
+        async def sentry_debug() -> dict:
+            _ = 1 / 0
+            return {"unreachable": True}
+
     return app
 
 
