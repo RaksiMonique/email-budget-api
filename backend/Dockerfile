@@ -5,7 +5,9 @@ WORKDIR /app
 # install dependencies first (cached layer), then copy source
 COPY pyproject.toml ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+# include the [sentry] extra so the image has sentry-sdk when SENTRY_DSN is set
+# (create_app imports it only behind the DSN gate; absent-but-set → boot crash).
+RUN pip install --no-cache-dir '.[sentry]'
 
 # alembic needed at runtime for Render's Pre-Deploy Command (alembic upgrade head)
 COPY alembic.ini ./

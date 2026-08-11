@@ -69,6 +69,9 @@ def create_app() -> FastAPI:
             # never capture stack-frame locals: poller exceptions would ship
             # the DECRYPTED webhook secret held in process_due's locals
             include_local_variables=False,
+            # never attach request bodies: the /internal payload carries the
+            # sender address + subject (financial PII); a 500 must not ship them
+            max_request_body_size="never",
         )
 
     @asynccontextmanager
