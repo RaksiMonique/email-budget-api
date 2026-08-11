@@ -423,7 +423,7 @@ These must be done before any code or Cloudflare setup.
 
 ### Sentry
 
-- [ ] ⛅ Create Sentry project (Python/FastAPI); add SDK init to `app/main.py`
+- [~] ⛅ Create Sentry project (Python/FastAPI); add SDK init to `app/main.py` — **SDK init DONE** ([main.py:61](backend/app/main.py#L61): opt-in on `SENTRY_DSN`, auth headers scrubbed, no local-var capture so the decrypted webhook secret never ships; `sentry-sdk` is the `sentry` extra). **Remaining (your cloud action):** create the Sentry project, install the extra in the image, set `SENTRY_DSN` in Render.
 - [ ] ⛅ Sentry on Workers optional — `wrangler tail` for logs in MVP
 
 ### Security checklist
@@ -434,7 +434,7 @@ These must be done before any code or Cloudflare setup.
 - [x] 🔧 Webhook secret encrypted at rest (Fernet)
 - [x] 🔧 Alias tokens ≥ 72 bits (`secrets.token_urlsafe(12)`)
 - [x] 🔧 All SQL parameterized (SQLAlchemy ORM — no raw f-strings)
-- [ ] 🔧 Rate limiting on `/internal/email-received` — **NOT built; known gap** → see "Security hardening (leaked-alias abuse)" under Future Enhancements
+- [x] 🔧 Rate limiting on `/internal/email-received` — **built 2026-08-10, env-configurable, default OFF** (`RATE_LIMIT_PER_ALIAS`/`RATE_LIMIT_WINDOW_SECONDS`; ack-drop over budget). See "Security hardening (leaked-alias abuse)" under Future Enhancements for the details + the remaining edge-drop follow-up.
 - [x] 🔧 `secrets.compare_digest` for internal-secret + HMAC comparisons
 - [x] 🔧 Amounts serialized as decimal strings (never JSON floats) across all API + webhook payloads
 
@@ -442,7 +442,24 @@ These must be done before any code or Cloudflare setup.
 
 ## Phase 10 — End-to-End Validation
 
-> Use **auto-forwarded** fixtures. Manual forwards are a best-effort tier and may fail — validate them separately, don't gate MVP on them.
+> Use **auto-forwarded** fixtures. Manual forwards are a best-effort tier and may fail — validate them separately, don't gate MVP on them. *(Note: for **validation** a manual forward of an old bank `.eml` is fine and already proven — the forward-unwrapper handles it. "Auto-forward only" describes the **product's** ingestion path, i.e. how real users feed the system with zero per-email effort; it is not a hard requirement for a test.)*
+
+> **Automated coverage (2026-08-10):** the *logic* behind every item below is locked by the integration suite (41 tests green) — this checklist is the **live** gate: the same behavior through the real Cloudflare→R2→queue→Render→Neon chain.
+>
+> | # | Scenario | Automated proof | Live forward? |
+> |---|----------|-----------------|---------------|
+> | 1–2 | bank alert / receipt → `ExtractionResult` | `test_full_flow_creates_extraction_and_outbox` | proven live at deploy (Amazon/USD 45.99); re-confirm anytime |
+> | 3 | newsletter → `non_financial` | `test_non_financial_is_skipped` | optional |
+> | 4 | dedup (same email 2×, same txn via 2 emails) | `test_duplicate_message_id_is_idempotent`, `test_retry_without_message_id_is_idempotent`, `test_same_transaction_is_flagged_never_suppressed` | **yes** — forward one email twice |
+> | 5 | unknown/inactive alias dropped | `test_unknown_alias_is_acked_and_dropped` (FastAPI defense-in-depth); the *edge* drop is Worker-only | **yes** — forward to a bogus alias |
+> | 6 | kill mid-batch → queue redelivers | `test_retry_without_message_id_is_idempotent` (idempotency) | **yes** — infra-level |
+> | 7 | confirm idempotent | `test_confirm_dismiss_lifecycle` | no |
+> | 8 | feedback ×3 → rule | `test_feedback_creates_rule_after_three` | no |
+> | 9 | delete user data | `test_delete_user_data_schedules_and_deactivates` | no |
+> | 10 | webhook + HMAC | `test_delivery_signs_correctly`, `test_secret_is_encrypted_at_rest` | no |
+> | 11 | redeploy → outbox resumes | `test_no_config_defers…`; DB-backed outbox is redeploy-safe by construction | no |
+>
+> **Minimal live run — no transaction, no filter rule:** (a) forward an old bank `.eml` to your alias → row appears; (b) forward it *again* → dedup flag; (c) forward a newsletter → `non_financial`; (d) forward anything to a *bogus* alias → dropped at the edge. Closes items 1–5; 6 & 11 are infra-durability, proven by design.
 
 - [ ] Auto-forward a Chase bank alert → `email_type=bank_alert`, amount/merchant/date populated
 - [ ] Auto-forward an Amazon receipt → `ExtractionResult` with amount, merchant, date
@@ -508,7 +525,7 @@ These must be done before any code or Cloudflare setup.
 
 > **Threat (identified 2026-08-10):** the alias is an unguessable bearer token (~72 bits), but if it *leaks* — it appears in the user's Sent folder, forwarding settings, and the app's settings UI — anyone who learns it can send unlimited mail to that user's alias. Blast radius is bounded (user-scoped; **no auto-confirm**, so fakes can only clutter the `pending_review` queue, never the real ledger), but the flood + spoof vectors below are real and currently unmitigated.
 
-- [ ] 🔧 **Per-alias rate limiting on `/internal/email-received`** (the "flood" gap — the Phase 9 checklist listed this but it was never built). Cap accepted emails per alias per window (e.g. N/hour); excess → drop silently (ack 200, no R2 write, no row). A DB-count check is fine for the single-instance MVP (count `imported_emails` for the alias in the window); a dedicated counter/table if it needs to scale. Drop at the Email Worker edge too, to avoid the R2 write.
+- [x] 🔧 **Per-alias rate limiting on `/internal/email-received`** — **built 2026-08-10 (env-configurable, default OFF).** `RATE_LIMIT_PER_ALIAS` (0 disables) + `RATE_LIMIT_WINDOW_SECONDS` (default 3600): a DB count of `imported_emails` for the alias in the window, checked after dedup and while holding the alias `FOR UPDATE` lock (race-free). Over-limit → **ack 200 + orphan-delete, no row** (never 429 — a non-200 would make Cloudflare Queues retry the flood forever into the DLQ). Default 0 keeps MVP behavior unchanged; flip one env var to enforce. Tests: `test_rate_limit_drops_flood_over_budget`, `test_rate_limit_disabled_by_default`. *Still TODO for full defense-in-depth: drop at the Email Worker edge too, to avoid the R2 write.*
 - [ ] 🔧 **Sender-authentication verification — env-configurable** via **`VERIFY_SENDER_AUTH`** (bool in `config.py`, default `false`). Today [sender_resolver.py](backend/app/extraction/sender_resolver.py) regex-extracts the DKIM `d=` domain but **never verifies the signature** — so an attacker who knows the alias can forge `From: alerts@chase.com` + a fake `DKIM-Signature: …d=chase.com` and manufacture a convincing fake `pending_review` "Chase transaction."
   - **ON** → only trust a resolved sender domain for template matching / financial-registry classification if the message *authenticated* for that domain: read Cloudflare Email Routing's `Authentication-Results` header (the edge already runs SPF/DKIM/DMARC), or cryptographically verify DKIM.
   - **OFF** (default for now) → current permissive behavior — needed because manual/edge-case forwarding can break strict alignment, which is exactly why it must be a toggle, not hardcoded.

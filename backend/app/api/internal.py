@@ -6,12 +6,13 @@ the entire durability story (PLAN.md Phase 3). No asyncio.create_task.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.session import get_db
 from app.extraction.pipeline import run as run_pipeline
 from app.integrations import r2_client
@@ -109,6 +110,28 @@ async def email_received(
         if existing is not None:
             await _delete_orphan(r2_key)
             return {"received": True, "duplicate": True, "email_id": str(existing)}
+
+    # 3b. Per-alias rate limit (leaked-alias flood protection). Runs AFTER dedup
+    # so a legitimate retry/re-forward never burns budget, and while holding the
+    # alias FOR UPDATE lock so the count→accept decision is race-free. Over-limit
+    # emails are ACKed + orphan-deleted (never 429 — a non-200 would make the
+    # queue retry the flood forever). 0 = disabled.
+    settings = get_settings()
+    if settings.rate_limit_per_alias > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.rate_limit_window_seconds
+        )
+        recent = await db.scalar(
+            select(func.count())
+            .select_from(ImportedEmail)
+            .where(
+                ImportedEmail.alias_hash == alias_hash,
+                ImportedEmail.created_at >= cutoff,
+            )
+        )
+        if (recent or 0) >= settings.rate_limit_per_alias:
+            await _delete_orphan(r2_key)
+            return {"received": True, "dropped": "rate_limited"}
 
     # 3. Create the email record
     email = ImportedEmail(

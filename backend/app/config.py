@@ -41,6 +41,15 @@ class Settings(BaseSettings):
 
     sentry_dsn: str = ""
 
+    # Per-alias ingestion rate limit (leaked-alias flood protection, PLAN.md
+    # "Security hardening — leaked-alias abuse"). A leaked alias is a bearer
+    # token; capping accepted emails/window bounds how much a flood can clutter
+    # the pending_review queue. 0 = disabled (default — no MVP behavior change);
+    # set >0 to enforce. Over-limit emails are ACKed + dropped (never 429, which
+    # would make Cloudflare Queues retry a flood forever into the DLQ).
+    rate_limit_per_alias: int = 0
+    rate_limit_window_seconds: int = 3600
+
     @field_validator("database_url")
     @classmethod
     def _force_asyncpg_scheme(cls, v: str) -> str:

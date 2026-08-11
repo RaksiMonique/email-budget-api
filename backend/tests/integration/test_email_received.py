@@ -156,3 +156,48 @@ async def test_overlong_message_id_is_clamped(client, seeded, mock_r2, db_sessio
 
     email = (await db_session.execute(select(ImportedEmail))).scalar_one()
     assert email.message_id is not None and len(email.message_id) <= 998
+
+
+async def test_rate_limit_drops_flood_over_budget(
+    client, seeded, mock_r2, db_session, monkeypatch
+):
+    """Leaked-alias flood protection: with a per-alias cap set, emails beyond the
+    budget in the window are ACKed + dropped (rate_limited) and never persisted —
+    so a flood can't clutter pending_review. Under-cap emails still process."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "rate_limit_per_alias", 2)
+
+    accepted = dropped = 0
+    for i in range(4):
+        payload = dict(
+            PAYLOAD,
+            message_id=f"<flood-{i}@x>",
+            r2_key=f"emails/k3pzx9wql2mn8vta/flood-{i}.eml",
+        )
+        r = await client.post("/internal/email-received", json=payload, headers=HEADERS)
+        assert r.status_code == 200, r.text  # always ACK — never retry a flood
+        if r.json().get("dropped") == "rate_limited":
+            dropped += 1
+        else:
+            accepted += 1
+
+    assert accepted == 2 and dropped == 2  # exactly the budget accepted
+
+    emails = (await db_session.execute(select(ImportedEmail))).scalars().all()
+    assert len(emails) == 2  # dropped ones left no rows
+    alias = (await db_session.execute(select(Alias))).scalar_one()
+    assert alias.emails_received == 2
+
+
+async def test_rate_limit_disabled_by_default(client, seeded, mock_r2, db_session):
+    """Default (limit=0) is off: a burst all processes — no MVP behavior change."""
+    for i in range(3):
+        payload = dict(
+            PAYLOAD, message_id=f"<burst-{i}@x>", r2_key=f"emails/k/burst-{i}.eml"
+        )
+        r = await client.post("/internal/email-received", json=payload, headers=HEADERS)
+        assert r.status_code == 200 and "dropped" not in r.json()
+
+    emails = (await db_session.execute(select(ImportedEmail))).scalars().all()
+    assert len(emails) == 3
