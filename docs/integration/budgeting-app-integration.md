@@ -14,6 +14,46 @@ User ←→ Budgeting App ←→ Email Budget API ←→ Cloudflare (email, queu
 
 The Email API never talks to users directly. It does not know what a "budget" is.
 
+**Production base URL:** `https://email-budget-api.onrender.com` (free tier — first request after idle has a ~50s cold start).
+
+---
+
+## Testing against production (prod Email API → dev budget receiver)
+
+The Email API is **live** and the full ingestion path is proven end-to-end on real
+mail. To let the (dev) budgeting app receive real extractions, wire it up once:
+
+1. **Get the API key** (Email API side, one-time). In the Render Shell for the
+   `email-budget-api` service:
+   ```
+   python -m app.seed.create_api_key "budgeting-app-dev"
+   ```
+   It prints the key **once** — store it as the budgeting app's `X-API-Key`.
+2. **Stand up a receiver** in the dev budgeting app: an HTTPS `POST` endpoint that
+   verifies the signature (see “Verifying webhook signatures” below) and returns
+   `2xx`. It must handle `extraction.created` and `extraction.failed`.
+3. **Register the receiver** with the Email API (authenticated with the key):
+   ```
+   POST https://email-budget-api.onrender.com/api/v1/config/webhook
+   X-API-Key: <key from step 1>
+   { "webhook_url": "https://<dev-budget-host>/webhooks/email-extractions",
+     "webhook_secret": "<a strong shared secret you generate>" }
+   ```
+   Use that same secret in the receiver's verification. ⚠️ Once configured, any
+   **already-queued** extraction events (e.g. the real transactions already in
+   `pending_review`) will deliver on the next poll — real financial PII reaches the
+   dev environment, so treat dev data as real.
+4. **Smoke-test the wire** before relying on real mail:
+   ```
+   POST https://email-budget-api.onrender.com/api/v1/config/webhook/test
+   X-API-Key: <key>
+   ```
+   → sends a signed `{"event":"test",...}` to the receiver; response reports
+   `delivered` + the receiver's `status_code`.
+5. **End-to-end:** forward a bank email to a user's alias → within a poll cycle the
+   receiver gets a signed `extraction.created`. (Or start on **pull** — poll
+   `GET /api/v1/extractions?status=pending_review` — and add the webhook later.)
+
 ---
 
 ## What the Budgeting App Must Implement
@@ -23,7 +63,7 @@ The Email API never talks to users directly. It does not know what a "budget" is
 When a user enables the email tracking feature in the budgeting app:
 
 ```
-POST https://api.emailbudget.io/api/v1/aliases
+POST https://email-budget-api.onrender.com/api/v1/aliases
 Headers:
   X-API-Key: <service_api_key>
 Body:
@@ -57,61 +97,76 @@ POST /api/v1/config/webhook
 
 **What the budgeting app receives:**
 
+> **Exact wire format** (verified against the deployed code — the earlier draft
+> was inaccurate). Every delivery is `{event, event_id, created_at, data}` with a
+> compact JSON body (no spaces: `separators=(",", ":")`). All money/confidence
+> values are **strings**, never JSON numbers. `extraction.created` and
+> `extraction.failed` share the **same `data` shape** (same builder) — the failed
+> one just has null money/date fields and a different `status`. There is **no**
+> nested `email` object and **no** `failure_reason` field.
+
 ```json
 // New extraction ready for review
 {
   "event": "extraction.created",
-  "id": "evt_uuid",
-  "created_at": "2026-05-17T10:00:00Z",
+  "event_id": "outbox-row-uuid",
+  "created_at": "2026-08-10T22:20:00+00:00",
   "data": {
     "extraction_id": "uuid",
-    "external_user_id": "budgeting-app-user-uuid",
-    "alias": "abc123@fintrack.raksimoni.com",
-    "merchant": "Amazon",
-    "amount": "45.99",
-    "currency": "USD",
-    "transaction_date": "2026-05-17",
-    "category_suggestion": "shopping",
-    "extraction_confidence": 0.94,
-    "duplicate_confidence": 0.0,
-    "status": "pending_review",
-    "email": {
-      "from": "receipts@amazon.com",
-      "subject": "Your Amazon.com order #123",
-      "received_at": "2026-05-17T09:15:00Z"
-    }
+    "email_id": "uuid",
+    "external_user_id": "budgeting-app-user-id",
+    "alias_hash": "k3pzx9wql2mn8vta",
+    "amount": "1730.00",              // STRING, never a float; null if unknown
+    "currency": "JMD",                // null if unknown
+    "merchant": "Kfc - Red Hills",    // normalized; null if not found
+    "category_suggestion": null,      // string or null
+    "transaction_date": "2026-08-10", // ISO date, or null
+    "extraction_confidence": "0.921", // STRING
+    "confidence_band": "high",        // "high" | "low_confidence"
+    "duplicate_confidence": "0",      // STRING; "1" => exact-match, show dup badge
+    "status": "pending_review"
   }
 }
 ```
 
 ```json
-// Extraction failed — email couldn't be parsed
+// Extraction failed — amount couldn't be parsed (same shape, money/date null)
 {
   "event": "extraction.failed",
-  "id": "evt_uuid",
-  "created_at": "2026-05-17T10:00:00Z",
+  "event_id": "outbox-row-uuid",
+  "created_at": "2026-08-10T22:54:00+00:00",
   "data": {
     "extraction_id": "uuid",
-    "external_user_id": "budgeting-app-user-uuid",
-    "failure_reason": "no_amount_found",
-    "email": {
-      "from": "billing@unknownco.io",
-      "subject": "Your invoice",
-      "received_at": "2026-05-17T09:15:00Z"
-    }
+    "email_id": "uuid",
+    "external_user_id": "budgeting-app-user-id",
+    "alias_hash": "k3pzx9wql2mn8vta",
+    "amount": null,
+    "currency": null,
+    "merchant": "Chinamax Restaurant", // may be present even when amount is null
+    "category_suggestion": null,
+    "transaction_date": null,
+    "extraction_confidence": "0.0",
+    "confidence_band": "low_confidence",
+    "duplicate_confidence": "0",
+    "status": "extraction_failed"
   }
 }
 ```
 
-**Verifying webhook signatures:**
+**Verifying webhook signatures.** Headers sent by the Email API:
+`X-EmailBudget-Timestamp: <unix seconds>` and `X-EmailBudget-Signature: <hex>`
+(raw HMAC-SHA256 hex digest — **no `sha256=` prefix**). Verify over the **raw
+request body bytes** (before JSON parsing — re-serializing changes the bytes and
+breaks the signature):
 ```python
 import hmac, hashlib, time
 
 def verify_webhook(secret: str, timestamp: str, body: bytes, signature: str) -> bool:
-    if abs(time.time() - int(timestamp)) > 300:  # 5-minute replay protection
+    if abs(time.time() - int(timestamp)) > 300:      # 5-minute replay window
         return False
-    expected = hmac.new(secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature)
+    msg = f"{timestamp}.".encode() + body            # sign over "{ts}." + raw body
+    expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)  # raw hex, no prefix
 ```
 
 ### 3. Transaction Review Flow
