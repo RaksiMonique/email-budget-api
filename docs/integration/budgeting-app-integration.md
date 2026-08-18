@@ -1,347 +1,318 @@
-# Budgeting App Integration Guide
+# Email Budget API — Integration Guide
 
-> **Keep this file when working on the budgeting app.** It defines the full contract between the Email Budget API and the client budgeting application: what each side owns, how they communicate, and what the budgeting app needs to implement.
-
----
-
-## Overview
-
-The Email Budget API is a standalone backend service. The budgeting app is its only client. Users interact with the budgeting app; the budgeting app calls the Email API on their behalf.
-
-```
-User ←→ Budgeting App ←→ Email Budget API ←→ Cloudflare (email, queue, storage)
-```
-
-The Email API never talks to users directly. It does not know what a "budget" is.
-
-**Production base URL:** `https://email-budget-api.onrender.com` (free tier — first request after idle has a ~50s cold start).
+**The single source of truth** for connecting the budgeting app to the Email Budget
+API: how to connect, what your app must set up, and the exact request/response
+shapes. Every schema and example below is verified against the **live** service and
+uses **fictional** sample data (safe to share).
 
 ---
 
-## Testing against production (prod Email API → dev budget receiver)
+## What it does
 
-The Email API is **live** and the full ingestion path is proven end-to-end on real
-mail. To let the (dev) budgeting app receive real extractions, wire it up once:
+The Email Budget API turns a user's **forwarded bank / receipt emails** into
+structured, reviewable transactions. Your budgeting app is its **only client** —
+you call it on behalf of your users. It never talks to users directly and knows
+nothing about "budgets."
 
-1. **Get the API key** (Email API side, one-time). In the Render Shell for the
-   `email-budget-api` service:
-   ```
-   python -m app.seed.create_api_key "budgeting-app-dev"
-   ```
-   It prints the key **once** — store it as the budgeting app's `X-API-Key`.
-2. **Stand up a receiver** in the dev budgeting app: an HTTPS `POST` endpoint that
-   verifies the signature (see “Verifying webhook signatures” below) and returns
-   `2xx`. It must handle `extraction.created` and `extraction.failed`.
-3. **Register the receiver** with the Email API (authenticated with the key):
-   ```
-   POST https://email-budget-api.onrender.com/api/v1/config/webhook
-   X-API-Key: <key from step 1>
-   { "webhook_url": "https://<dev-budget-host>/webhooks/email-extractions",
-     "webhook_secret": "<a strong shared secret you generate>" }
-   ```
-   Use that same secret in the receiver's verification. ⚠️ Once configured, any
-   **already-queued** extraction events (e.g. the real transactions already in
-   `pending_review`) will deliver on the next poll — real financial PII reaches the
-   dev environment, so treat dev data as real.
-4. **Smoke-test the wire** before relying on real mail:
-   ```
-   POST https://email-budget-api.onrender.com/api/v1/config/webhook/test
-   X-API-Key: <key>
-   ```
-   → sends a signed `{"event":"test",...}` to the receiver; response reports
-   `delivered` + the receiver's `status_code`.
-5. **End-to-end:** forward a bank email to a user's alias → within a poll cycle the
-   receiver gets a signed `extraction.created`. (Or start on **pull** — poll
-   `GET /api/v1/extractions?status=pending_review` — and add the webhook later.)
+```
+User ──▶ Budgeting App ──▶ Email Budget API ──▶ Cloudflare (email, queue, storage)
+                    ◀── extractions (pull or webhook) ──
+```
+
+Every parsed transaction starts as **`pending_review`** — the API **never
+auto-confirms**. Your user reviews it, and you confirm it. Missing fields are left
+blank, never guessed.
 
 ---
 
-## What the Budgeting App Must Implement
+## 1. Connect
 
-### 1. Alias Provisioning (User Onboarding)
+| | |
+|---|---|
+| **Base URL** | `https://email-budget-api.onrender.com` |
+| **Auth** | Header `X-API-Key: <key>` on **every** `/api/v1/*` request |
+| **Content type** | `application/json` |
 
-When a user enables the email tracking feature in the budgeting app:
+- **Get the key** from the API owner (one key per environment — dev/prod).
+- **Cold start:** the service is on a free tier; the first request after ~15 min
+  idle takes **~50s** while it wakes. Use generous timeouts and retry.
+- **Connectivity check:**
+  ```bash
+  curl -H "X-API-Key: $KEY" \
+    "https://email-budget-api.onrender.com/api/v1/extractions?external_user_id=demo-user"
+  ```
+  A `200` with a JSON page (even empty) means you're connected. `401` = bad/missing key.
+
+---
+
+## 2. Core concepts
+
+- **`external_user_id`** — *your* identifier for a user (any string, ≤255 chars).
+  You choose it; the API stores it verbatim and **scopes everything by it**. Use
+  your stable internal user id.
+- **alias** — a unique forwarding address for one user, e.g.
+  `ab12cd34ef56gh78@fintrack.raksimoni.com`. Email forwarded there is processed for
+  that user.
+- **extraction** — one parsed transaction. Lifecycle:
+  `pending_review → confirmed` (user accepted) or `→ dismissed` (user rejected).
+  `extraction_failed` = an email arrived but no amount could be parsed.
+- **Money & confidence are STRINGS** (`"amount": "18.99"`). Parse as decimal —
+  **never** as a float.
+
+---
+
+## 3. Setup checklist (what your app must build)
+
+1. **Store the API key** server-side (never ship it to the client).
+2. **On user onboarding** (email feature enabled): create an alias + show the user
+   how to forward.
+3. **Consume extractions** — pull now, add the webhook later.
+4. **Review UI** — show pending items → user confirms/dismisses → send feedback.
+5. **Map categories** — the API suggests from a fixed vocabulary (§7); map to yours.
+6. **On account deletion** — call the deletion endpoint (§8).
+
+---
+
+## 4. Onboard a user — create an alias
 
 ```
-POST https://email-budget-api.onrender.com/api/v1/aliases
-Headers:
-  X-API-Key: <service_api_key>
-Body:
-  {
-    "external_user_id": "budgeting-app-user-uuid",
-    "label": "Main inbox"   // optional, shown in settings
-  }
-Response:
-  {
-    "alias_id": "uuid",
-    "alias": "abc123@fintrack.raksimoni.com",
-    "external_user_id": "budgeting-app-user-uuid",
-    "created_at": "2026-05-17T10:00:00Z"
-  }
+POST /api/v1/aliases
+X-API-Key: <key>
+{ "external_user_id": "your-user-id" }
+```
+**201 response:**
+```json
+{
+  "id": "…",
+  "alias_hash": "ab12cd34ef56gh78",
+  "email_address": "ab12cd34ef56gh78@fintrack.raksimoni.com",
+  "external_user_id": "your-user-id",
+  "is_active": true,
+  "emails_received": 0
+}
 ```
 
-The budgeting app stores this alias and displays it to the user in settings ("Forward receipts to: abc123@fintrack.raksimoni.com").
+- Show the user how to forward to `email_address`. The intended path is a
+  **server-side auto-forward rule** (Gmail filter → the alias; Outlook rule) so
+  every bank alert flows in automatically. A manual one-off "Fwd" also works but is
+  best-effort.
+- **Confirm forwarding works:** poll `GET /api/v1/aliases?external_user_id=…` until
+  `emails_received > 0`, or subscribe to the `alias.first_email_received` webhook.
 
-### 2. Webhook Endpoint for New Extractions
+---
 
-The budgeting app must expose an HTTPS endpoint that the Email API POSTs to when a new extraction result is ready.
+## 5. Get transactions — two ways
 
-**Configure this in Email API settings:**
+### A) Pull (works immediately)
+
+```
+GET /api/v1/extractions?external_user_id=<id>&status=pending_review&limit=50&offset=0
+X-API-Key: <key>
+```
+**200 response** (`ExtractionPage`):
+```json
+{
+  "items": [
+    { "id": "11111111-1111-1111-1111-111111111111", "merchant_normalized": "Corner Cafe Kingston",
+      "amount": "1250.00", "currency": "JMD", "transaction_date": "2026-05-01",
+      "status": "pending_review", "confidence_band": "high", "duplicate_confidence": "0" }
+  ],
+  "total": 6, "limit": 50, "offset": 0
+}
+```
+Query params: `external_user_id` (**required**), `status` (optional:
+`pending_review` | `confirmed` | `dismissed` | `extraction_failed`), `limit`
+(1–200, default 50), `offset`.
+
+### B) Push (webhook — recommended once you have a receiver)
+
 ```
 POST /api/v1/config/webhook
-{
-  "webhook_url": "https://yourbudgetapp.com/webhooks/email-extractions",
-  "webhook_secret": "whsec_..."
-}
+X-API-Key: <key>
+{ "webhook_url": "https://your-app/webhooks/email-extractions",
+  "webhook_secret": "<a strong shared secret, ≥16 chars>" }
 ```
-
-**What the budgeting app receives:**
-
-> **Exact wire format** (verified against the deployed code — the earlier draft
-> was inaccurate). Every delivery is `{event, event_id, created_at, data}` with a
-> compact JSON body (no spaces: `separators=(",", ":")`). All money/confidence
-> values are **strings**, never JSON numbers. `extraction.created` and
-> `extraction.failed` share the **same `data` shape** (same builder) — the failed
-> one just has null money/date fields and a different `status`. There is **no**
-> nested `email` object and **no** `failure_reason` field.
-
-```json
-// New extraction ready for review
-{
-  "event": "extraction.created",
-  "event_id": "outbox-row-uuid",
-  "created_at": "2026-08-10T22:20:00+00:00",
-  "data": {
-    "extraction_id": "uuid",
-    "email_id": "uuid",
-    "external_user_id": "budgeting-app-user-id",
-    "alias_hash": "k3pzx9wql2mn8vta",
-    "amount": "1730.00",              // STRING, never a float; null if unknown
-    "currency": "JMD",                // null if unknown
-    "merchant": "Kfc - Red Hills",    // normalized; null if not found
-    "category_suggestion": null,      // string or null
-    "transaction_date": "2026-08-10", // ISO date, or null
-    "extraction_confidence": "0.921", // STRING
-    "confidence_band": "high",        // "high" | "low_confidence"
-    "duplicate_confidence": "0",      // STRING; "1" => exact-match, show dup badge
-    "status": "pending_review"
-  }
-}
+Then every new extraction POSTs to your URL (see **§10**). Smoke-test the wire:
 ```
-
-```json
-// Extraction failed — amount couldn't be parsed (same shape, money/date null)
-{
-  "event": "extraction.failed",
-  "event_id": "outbox-row-uuid",
-  "created_at": "2026-08-10T22:54:00+00:00",
-  "data": {
-    "extraction_id": "uuid",
-    "email_id": "uuid",
-    "external_user_id": "budgeting-app-user-id",
-    "alias_hash": "k3pzx9wql2mn8vta",
-    "amount": null,
-    "currency": null,
-    "merchant": "Chinamax Restaurant", // may be present even when amount is null
-    "category_suggestion": null,
-    "transaction_date": null,
-    "extraction_confidence": "0.0",
-    "confidence_band": "low_confidence",
-    "duplicate_confidence": "0",
-    "status": "extraction_failed"
-  }
-}
+POST /api/v1/config/webhook/test   →  { "delivered": true, "status_code": 200 }
 ```
+> ⚠️ Once configured, **already-queued** events deliver on the next poll — real
+> financial data reaches whatever environment you pointed at. Treat dev data as real.
 
-**Verifying webhook signatures.** Headers sent by the Email API:
-`X-EmailBudget-Timestamp: <unix seconds>` and `X-EmailBudget-Signature: <hex>`
-(raw HMAC-SHA256 hex digest — **no `sha256=` prefix**). Verify over the **raw
-request body bytes** (before JSON parsing — re-serializing changes the bytes and
-breaks the signature):
-```python
-import hmac, hashlib, time
+---
 
-def verify_webhook(secret: str, timestamp: str, body: bytes, signature: str) -> bool:
-    if abs(time.time() - int(timestamp)) > 300:      # 5-minute replay window
-        return False
-    msg = f"{timestamp}.".encode() + body            # sign over "{ts}." + raw body
-    expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)  # raw hex, no prefix
-```
+## 6. Review flow
 
-### 3. Transaction Review Flow
+1. Show the user their `pending_review` items.
+2. On open, get full detail: `GET /api/v1/extractions/{id}` (or `…/preview` to also
+   get the raw email snippet each field came from).
+3. **Confirm:** `POST /api/v1/extractions/{id}/confirm` body `{ "category": "food_and_dining" }`
+   (category optional) → row becomes `confirmed`. Idempotent.
+   **Dismiss:** `POST /api/v1/extractions/{id}/dismiss` body `{ "reason": "not mine" }`
+   (reason optional) → row becomes `dismissed`.
+4. **Teach it:** `POST /api/v1/feedback/category`
+   `{ "merchant_normalized": "Amazon", "category_confirmed": "shopping", "extraction_id": "…" }`.
+5. Create your own `Transaction` record and store the `extraction_id` on it (to link
+   back and avoid re-importing).
 
-When the budgeting app receives an `extraction.created` webhook:
+**How the feedback loop works** (pure heuristics — no ML): each `feedback/category`
+is logged; when the **same** merchant→category is confirmed **3×**, the API creates
+a merchant rule and starts suggesting that category for that merchant in
+`category_suggestion` going forward.
 
-1. Store the `extraction_id` internally (linked to a notification or pending item)
-2. Show user a "New transaction to review" notification/badge
-3. When user opens it: call `GET /api/v1/extractions/{id}` for full detail
-4. Present editable form pre-filled with extracted values
-5. User adjusts category, merchant name, notes
-6. On confirm:
-   ```
-   POST /api/v1/extractions/{id}/confirm
-   {
-     "category": "shopping",          // the category the user confirmed
-     "notes": "Birthday gift"
-   }
-   ```
-7. Create the `Transaction` record in the budgeting app's own database
-8. Send category feedback:
-   ```
-   POST /api/v1/feedback/category
-   {
-     "extraction_id": "uuid",
-     "merchant_normalized": "Amazon",
-     "category_confirmed": "shopping"
-   }
-   ```
+**What to store on your Transaction** (minimum): `email_extraction_id` (the `id` —
+links back, dedupes against manual entries) and `extraction_confidence` (to show the
+user how sure the import was). Use `GET /extractions/{id}/preview` to show the raw
+email snippet on demand.
 
-### 4. Category Taxonomy Alignment
+---
 
-The Email API uses a built-in category vocabulary for suggestions. The budgeting app has user-defined categories. The budgeting app must map between them.
+## 7. Category vocabulary & mapping
 
-**Email API suggestion vocabulary:**
+`category_suggestion` (when present) comes from this fixed vocabulary:
 ```
 food_and_dining, groceries, transport, entertainment, shopping,
 utilities, subscriptions, health, travel, atm_cash, transfers, other
 ```
+Your app has its own categories, so map between them. Simplest for MVP: show your
+own category list in the review UI with the API's suggestion **pre-selected** as the
+best match; store `{api_suggestion → your_category_id}`. (A Phase-2
+`POST /api/v1/config/categories` will let the API suggest *your* IDs directly.)
 
-**Mapping approach options:**
-- A) Budgeting app stores a mapping: `{email_api_suggestion: user_category_id}`
-- B) When displaying to user, budgeting app shows its own category list with the email API suggestion pre-selected as the best match
-- C) Budgeting app sends its category list to the email API so it can suggest using that taxonomy directly (Phase 2 enhancement)
+---
 
-Option B is simplest for MVP. Option C is the long-term goal.
+## 8. Account deletion (GDPR)
 
-**Phase 2: Send category taxonomy to Email API**
-```
-POST /api/v1/config/categories
-{
-  "categories": [
-    {"id": "cat_001", "name": "Eating Out", "keywords": ["restaurant", "food", "dining"]},
-    {"id": "cat_002", "name": "Groceries", "keywords": ["grocery", "supermarket"]},
-    ...
-  ]
-}
-```
-Email API then suggests using the budgeting app's actual category IDs.
-
-### 5. Account Deletion
-
-When a user deletes their budgeting app account or disables the email feature:
-
+When a user deletes their account or disables the email feature:
 ```
 DELETE /api/v1/users/{external_user_id}/data
-Headers:
-  X-API-Key: <service_api_key>
-  
-Response 202:
+X-API-Key: <key>
+```
+**200 response:**
+```json
+{ "external_user_id": "your-user-id", "aliases_deactivated": 1, "emails_scheduled_for_deletion": 142 }
+```
+This deactivates the user's aliases immediately and schedules their stored raw
+emails for deletion after a grace period. Idempotent.
+
+---
+
+## 9. Data shapes
+
+**Extraction detail** (`GET /api/v1/extractions/{id}`) — fictional example:
+```json
 {
-  "scheduled_deletion_date": "2026-06-17T00:00:00Z",
-  "aliases_deactivated": 1,
-  "emails_to_delete": 142
+  "id": "11111111-1111-1111-1111-111111111111",
+  "email_id": "22222222-2222-2222-2222-222222222222",
+  "external_user_id": "user-1234",
+  "amount": "1250.00",              // STRING; null if not found
+  "currency": "JMD",                // null if unknown
+  "merchant_normalized": "Corner Cafe Kingston",
+  "merchant_raw": "CORNER CAFE KINGSTON",
+  "category_suggestion": null,      // string (from §7 vocab) or null
+  "category_confirmed": null,       // set once the user confirms
+  "transaction_date": "2026-05-01", // ISO date, or null
+  "card_last4": "4821",             // or null
+  "extraction_confidence": "0.921", // STRING 0–1
+  "confidence_band": "high",        // "high" | "low_confidence"
+  "duplicate_confidence": "0",      // "1" ⇒ exact-match exists, show a badge
+  "status": "pending_review",
+  "method": "template",             // template | regex | default
+  "fingerprint": "a1b2c3d4e5f6…",
+  "dismissed_reason": null,
+  "field_confidences": { "amount": 0.97, "merchant": 0.97, "…": 0.97 },
+  "duplicate_matches": [],
+  "created_at": "2026-05-01T14:03:00Z"
 }
 ```
-
-This deactivates the user's aliases and schedules all email content for deletion (30-day grace period per GDPR).
+Field notes:
+- **`status`** — `pending_review` | `confirmed` | `dismissed` | `extraction_failed`.
+- **`confidence_band`** — `high` (complete + confident) or `low_confidence` (usable
+  but review closely). Both are still `pending_review`.
+- **`duplicate_confidence: "1"`** — an exact same-transaction match already exists.
+  The row is **still live** (never auto-suppressed) — show a "possible duplicate"
+  badge and let the user decide.
+- **currency** — a bare `$` from a Jamaican bank defaults to `JMD`; the user can
+  correct it on review.
 
 ---
 
-## What the Budgeting App Must Store
+## 10. Webhook payload + signature
 
-When a user confirms a transaction from an email extraction, the budgeting app creates its own `Transaction` record and should include:
-
-```sql
--- Budgeting app Transaction table (additions for email integration)
-ALTER TABLE transactions ADD COLUMN email_extraction_id UUID;        -- Email API's extraction ID
-ALTER TABLE transactions ADD COLUMN email_source VARCHAR(50);        -- 'email_forwarded'
-ALTER TABLE transactions ADD COLUMN email_from VARCHAR(320);         -- original sender
-ALTER TABLE transactions ADD COLUMN email_subject TEXT;              -- original subject
-ALTER TABLE transactions ADD COLUMN extraction_confidence DECIMAL;   -- for user transparency
+Every delivery is compact JSON `{ event, event_id, created_at, data }`:
+```json
+{
+  "event": "extraction.created",
+  "event_id": "outbox-row-uuid",
+  "created_at": "2026-05-01T14:03:00+00:00",
+  "data": { /* same fields as the extraction detail above */ }
+}
 ```
+**Events:** `extraction.created`, `extraction.failed` (same `data` shape, money/date
+null), `alias.first_email_received`, `forwarding.verification`.
 
-This lets the budgeting app:
-- Show users "This transaction was imported from email receipts@amazon.com"
-- Link back to the raw email preview (via `GET /extractions/{id}/preview`)
-- Exclude email-sourced transactions from duplicate detection against manually entered ones
+**Headers:** `X-EmailBudget-Timestamp: <unix seconds>` and
+`X-EmailBudget-Signature: <hex>` — a **raw** HMAC-SHA256 hex digest, **no `sha256=`
+prefix**. Verify over the **raw request body bytes** (re-serializing changes the
+bytes and breaks it):
+```python
+import hmac, hashlib, time
+
+def verify(secret: str, timestamp: str, body: bytes, signature: str) -> bool:
+    if abs(time.time() - int(timestamp)) > 300:       # 5-min replay window
+        return False
+    msg = f"{timestamp}.".encode() + body             # sign over "{ts}." + raw body
+    expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)   # raw hex, no prefix
+```
+Return `2xx` to ack. Non-2xx / timeouts are retried with backoff.
 
 ---
 
-## API Endpoint Reference for Budgeting App Developers
+## 11. Endpoint reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/aliases` | Create forwarding alias for a user |
-| `GET` | `/api/v1/aliases?external_user_id=` | List user's aliases |
+All under `https://email-budget-api.onrender.com`, all require `X-API-Key`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/aliases` | Create a user's forwarding alias |
+| `GET` | `/api/v1/aliases?external_user_id=` | List a user's aliases |
 | `DELETE` | `/api/v1/aliases/{id}` | Deactivate an alias |
-| `GET` | `/api/v1/extractions?external_user_id=&status=` | List extraction results |
+| `GET` | `/api/v1/extractions?external_user_id=&status=&limit=&offset=` | List transactions (page) |
 | `GET` | `/api/v1/extractions/{id}` | Full extraction detail |
-| `GET` | `/api/v1/extractions/{id}/preview` | Extracted fields + raw snippet |
-| `POST` | `/api/v1/extractions/{id}/confirm` | User confirmed this extraction |
-| `POST` | `/api/v1/extractions/{id}/dismiss` | User dismissed/rejected this extraction |
-| `POST` | `/api/v1/extractions/{id}/reprocess` | Re-run extraction (after template update) |
-| `POST` | `/api/v1/feedback/category` | Send category confirmation for learning |
-| `GET` | `/api/v1/stats/extraction?external_user_id=` | Extraction accuracy stats for user |
-| `POST` | `/api/v1/config/webhook` | Set webhook URL and secret |
-| `POST` | `/api/v1/config/categories` | (Phase 2) Send category taxonomy |
-| `DELETE` | `/api/v1/users/{external_user_id}/data` | Initiate user data deletion |
-| `GET` | `/api/v1/users/{external_user_id}/data-export` | GDPR data export |
-
-**Authentication:** All requests from the budgeting app use:
-```
-X-API-Key: <your_service_api_key>
-```
+| `GET` | `/api/v1/extractions/{id}/preview` | Detail + raw email snippets |
+| `POST` | `/api/v1/extractions/{id}/confirm` | User confirmed → `confirmed` |
+| `POST` | `/api/v1/extractions/{id}/dismiss` | User rejected → `dismissed` |
+| `POST` | `/api/v1/extractions/{id}/reprocess` | Re-run extraction on the stored email |
+| `POST` | `/api/v1/feedback/category` | Teach merchant→category |
+| `GET` | `/api/v1/stats/extraction?external_user_id=` | Per-user extraction stats |
+| `POST` | `/api/v1/config/webhook` | Register your webhook URL + secret |
+| `POST` | `/api/v1/config/webhook/test` | Send a signed test event |
+| `DELETE` | `/api/v1/users/{external_user_id}/data` | Schedule user data deletion (GDPR) |
 
 ---
 
-## Heuristic Feedback Loop — How It Works
+## 12. Handling errors & edge cases
 
-The budgeting app participates in improving extraction quality by sending category confirmations back to the Email API.
-
-```
-Email API extracts: merchant=Amazon, category_suggestion=shopping
-Budgeting app shows user: suggested Shopping (user's category)
-User changes to: "Gifts"
-
-Budgeting app → POST /feedback/category
-{
-  "extraction_id": "uuid",
-  "merchant_normalized": "Amazon",
-  "category_confirmed": "gifts"     // user's category ID or name
-}
-
-Email API:
-  - Logs this feedback
-  - If same merchant gets "gifts" confirmed 3+ times → update merchant rule
-  - Future Amazon extractions → suggest "gifts" (or the most common confirmed category)
-```
-
-This is a **pure heuristics approach** — no machine learning. Just a frequency table that the budgeting app contributes to. Over time, suggestions become personalized per-user (or globally across all users for common merchants).
+| Situation | What your app should do |
+|---|---|
+| `extraction.failed` (or `status: "extraction_failed"`) | "We received a receipt but couldn't read it — enter manually." Don't drop it silently. |
+| `duplicate_confidence: "1"` | Show a "possible duplicate" badge; the row is still live, user decides. |
+| `confidence_band: "low_confidence"` | Show a "low confidence" badge; keep fields editable. |
+| Webhook delivery fails | The API retries with backoff. As a fallback, poll `GET /extractions`. |
+| Alias unknown/deactivated | The API drops the email at the edge; surface alias status in your settings UI. |
+| Cold start (~50s first request) | Generous timeouts + retry. |
+| `401` | Bad/missing `X-API-Key`. |
 
 ---
 
-## Error States the Budgeting App Must Handle
+## 13. Future enhancements (Phase 2+)
 
-| Event | Budgeting App Response |
-|-------|----------------------|
-| `extraction.failed` | Notify user "We received a receipt but couldn't read it — enter manually" |
-| `extraction.created` with `duplicate_confidence > 0.8` | Show "Possible duplicate" badge in review UI |
-| `extraction.created` with `extraction_confidence < 0.6` | Show "Low confidence" badge, pre-populate fields as editable |
-| Webhook delivery failed (Email API retries for 24h) | Email API retries; budgeting app may poll as fallback |
-| Alias not found / deactivated | Email API swallows the email; budgeting app should show alias status in settings |
+- Send your category taxonomy so the API suggests *your* category IDs directly.
+- Batch confirm; a merchant→category rules editor backed by the API.
+- Extraction analytics dashboard; OCR for PDF/image receipts.
 
 ---
 
-## Future Integration Enhancements (Phase 2+)
-
-- **Send budgeting app category taxonomy** so Email API suggests using real category IDs
-- **Batch confirmation**: `POST /extractions/bulk-confirm [{id, category}]`
-- **User rules API**: Budgeting app surfaces merchant → category rules editor backed by Email API rules
-- **Extraction analytics**: Budgeting app dashboard shows "142 transactions auto-imported this month, 94% accuracy"
-- **Real-time WebSocket**: Replace webhook polling with WebSocket subscription for instant review notifications
-- **OCR for attachments**: Email API extracts from PDF/image receipts; budgeting app gets richer data
-
----
-
-*This document is the integration contract. Changes to the API contract must be reflected here first, then coordinated with the budgeting app.*
+*This document is the integration contract. Changes to the API must be reflected
+here first, then coordinated with the budgeting app.*
