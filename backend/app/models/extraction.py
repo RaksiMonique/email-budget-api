@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     CHAR,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -52,6 +54,16 @@ class ExtractionResult(Base):
     dismissed_reason: Mapped[str | None] = mapped_column(Text)
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
     duplicate_confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0"))
+    # transaction direction / status (debit is the safe default — see
+    # general_extractor.transaction_flags). amount stays a positive magnitude;
+    # direction carries the sign so existing consumers don't break.
+    direction: Mapped[str] = mapped_column(String(8), server_default="debit", default="debit")
+    is_probable_refund: Mapped[bool] = mapped_column(
+        Boolean, server_default=false(), default=False
+    )
+    is_declined: Mapped[bool] = mapped_column(
+        Boolean, server_default=false(), default=False
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

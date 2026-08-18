@@ -32,6 +32,9 @@ class ExtractionSummary(_DecimalAsString):
     confidence_band: str
     duplicate_confidence: Decimal
     status: str
+    direction: str
+    is_probable_refund: bool
+    is_declined: bool
     created_at: datetime
 
 

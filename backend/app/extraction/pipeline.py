@@ -96,6 +96,10 @@ def run(raw: bytes) -> ExtractionResult:
     overall, conf = confidence_scorer.score(fields)
     status, band = confidence_scorer.route(overall, fields)
 
+    # debit vs credit/refund + declined — a positive `amount` plus a direction,
+    # so a refund reduces (not inflates) spending and a declined charge is flagged
+    direction, is_probable_refund, is_declined = general_extractor.transaction_flags(content)
+
     return ExtractionResult(
         resolved_sender=sender,
         classification=classification,
@@ -107,6 +111,9 @@ def run(raw: bytes) -> ExtractionResult:
         confidence_band=band,
         status=status,
         fingerprint=_fingerprint(fields, normalized),
+        direction=direction,
+        is_probable_refund=is_probable_refund,
+        is_declined=is_declined,
     )
 
 

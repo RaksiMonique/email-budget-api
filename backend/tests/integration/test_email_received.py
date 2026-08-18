@@ -190,6 +190,48 @@ async def test_rate_limit_drops_flood_over_budget(
     assert alias.emails_received == 2
 
 
+async def test_refund_sets_credit_direction_end_to_end(client, seeded, db_session, monkeypatch):
+    """A refund must extract as direction=credit (is_probable_refund) so the ledger
+    reduces — not inflates — spending, and the webhook payload must carry it."""
+    refund = (
+        b"From: alerts@somebank.test\r\n"
+        b"To: k3pzx9wql2mn8vta@fintrack.raksimoni.com\r\n"
+        b"Subject: Refund processed\r\n"
+        b"Message-ID: <refund-1@somebank.test>\r\n"
+        b"MIME-Version: 1.0\r\n"
+        b"Content-Type: text/plain\r\n\r\n"
+        b"Transaction Type: Refund\r\n"
+        b"Amount: JMD 500.00\r\n"
+        b"Merchant: SAMPLE STORE\r\n"
+        b"Transaction Date: 06/08/2026\r\n"
+    )
+
+    import app.api.internal as internal_mod
+
+    async def _fake_get(r2_key: str) -> bytes:
+        return refund
+
+    monkeypatch.setattr(internal_mod.r2_client, "get_object", _fake_get)
+
+    payload = dict(PAYLOAD, message_id="<refund-1@somebank.test>", r2_key="emails/k/refund.eml")
+    r = await client.post("/internal/email-received", json=payload, headers=HEADERS)
+    assert r.status_code == 200, r.text
+
+    row = (await db_session.execute(select(ExtractionResult))).scalar_one()
+    assert row.direction == "credit"
+    assert row.is_probable_refund is True
+    assert row.is_declined is False
+    assert row.status == "pending_review"
+
+    outbox = (
+        await db_session.execute(
+            select(WebhookOutbox).where(WebhookOutbox.event_type == "extraction.created")
+        )
+    ).scalar_one()
+    assert outbox.payload_json["direction"] == "credit"
+    assert outbox.payload_json["is_probable_refund"] is True
+
+
 async def test_rate_limit_disabled_by_default(client, seeded, mock_r2, db_session):
     """Default (limit=0) is off: a burst all processes — no MVP behavior change."""
     for i in range(3):

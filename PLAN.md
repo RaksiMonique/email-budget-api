@@ -537,8 +537,13 @@ to that key's config; a **null `api_key_id` falls back to the current global pat
 (`webhook_outbox.target_url` already exists, unused — a per-row slot.) Effort ~1–2
 days, low risk (additive + fallback). Interim: single webhook → dev (option a).
 
-**2. Transaction direction (debit/credit + refund)** — **gates auto-confirm** (a
-refund auto-booked as a charge has no reviewer to catch it). Scope: add `direction`
+**2. Transaction direction (debit/credit + refund)** — ✅ **BUILT 2026-08-18**
+(migration `4ebc09ede792`; `direction` + `is_probable_refund` + `is_declined` on
+`extraction_results`, all payloads/schemas; `general_extractor.transaction_flags`;
+11 new tests incl. the "credit card ≠ credit" guard). Still pending: **reversal
+netting** (match refund ↔ original) and the auto-confirm policy switch itself.
+**gates auto-confirm** (a refund auto-booked as a charge has no reviewer to catch
+it). Original scope: add `direction`
 (`'debit'|'credit'`, default `debit`) + `is_probable_refund` (bool) to
 `extraction_results` and all payloads; keep `amount` a **positive magnitude**
 (direction carries the sign — non-breaking for existing consumers). Heuristic

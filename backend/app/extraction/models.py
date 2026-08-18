@@ -81,6 +81,9 @@ class ExtractionResult:
     confidence_band: str  # high | low_confidence | n/a
     status: Status
     fingerprint: Optional[str] = None
+    direction: str = "debit"  # debit | credit
+    is_probable_refund: bool = False
+    is_declined: bool = False
 
     def value(self, key: str) -> Any:
         """Convenience accessor for a field's extracted value (or None)."""

@@ -68,6 +68,9 @@ def apply_result_fields(row: ExtractionResult, result: PipelineResult) -> str:
     row.method = "mixed" if len(methods) > 1 else next(iter(methods), None)
     row.status = status_value
     row.fingerprint = result.fingerprint if amount is not None else None
+    row.direction = result.direction
+    row.is_probable_refund = result.is_probable_refund
+    row.is_declined = result.is_declined
     return status_value
 
 
@@ -87,6 +90,9 @@ def _extraction_event_payload(row: ExtractionResult, email: ImportedEmail) -> di
         ),
         "extraction_confidence": str(row.extraction_confidence),
         "confidence_band": row.confidence_band,
+        "direction": row.direction,                    # "debit" | "credit"
+        "is_probable_refund": row.is_probable_refund,
+        "is_declined": row.is_declined,
         # flag-only dedup: "1" means an exact-fingerprint match exists and the
         # UI should show a possible-duplicate badge; the row is still live
         "duplicate_confidence": format(row.duplicate_confidence.normalize(), "f"),

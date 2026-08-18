@@ -75,3 +75,24 @@ def test_bare_amount_under_label_no_currency():
     f = G.extract("Merchant: CHINAMAX RESTAURANT\nAmount: 670.00\nStatus: Approved")
     assert f["amount"].value == Decimal("670.00")
     assert "currency" not in f
+
+
+@pytest.mark.parametrize(
+    "text, direction, refund, declined",
+    [
+        ("Amount: JMD 500.00\nMerchant: STORE", "debit", False, False),      # plain purchase
+        ("A refund of JMD 500.00 was processed", "credit", True, False),     # refund word
+        ("Reversal of JMD 500.00 to your account", "credit", True, False),   # reversal word
+        ("Transaction Type: Refund\nAmount: JMD 500.00", "credit", True, False),  # Type field
+        ("Transaction Type: Credit\nAmount: JMD 500.00", "credit", False, False), # credit, not refund
+        ("Deposit of JMD 500.00 received", "credit", False, False),          # deposit
+        ("Your credit card purchase of JMD 500.00", "debit", False, False),  # GUARD: bare "credit"
+        ("Card Type: Credit Card\nAmount: JMD 500.00", "debit", False, False),  # GUARD: "credit card"
+        ("Amount: JMD 500.00\nStatus: DECLINED", "debit", False, True),      # declined charge
+        ("A refund was declined", "credit", True, True),                     # refund + declined
+    ],
+)
+def test_transaction_flags(text, direction, refund, declined):
+    # (direction, is_probable_refund, is_declined) — debit is the safe default,
+    # a bare "credit card" must never read as a credit/refund
+    assert G.transaction_flags(text) == (direction, refund, declined)

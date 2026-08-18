@@ -223,6 +223,9 @@ emails for deletion after a grace period. Idempotent.
   "confidence_band": "high",        // "high" | "low_confidence"
   "duplicate_confidence": "0",      // "1" ⇒ exact-match exists, show a badge
   "status": "pending_review",
+  "direction": "debit",             // "debit" | "credit"
+  "is_probable_refund": false,      // true ⇒ a refund/reversal (a credit)
+  "is_declined": false,             // true ⇒ declined charge — show, don't book
   "method": "template",             // template | regex | default
   "fingerprint": "a1b2c3d4e5f6…",
   "dismissed_reason": null,
@@ -240,9 +243,13 @@ Field notes:
   badge and let the user decide.
 - **currency** — a bare `$` from a Jamaican bank defaults to `JMD`; the user can
   correct it on review.
-- **No debit/credit direction yet** — every `amount` is a positive magnitude; a
-  refund/credit is **not** distinguished from a charge (on the roadmap). Book as a
-  debit for now.
+- **`direction`** — `"debit"` (a charge) or `"credit"` (a refund/reversal/deposit).
+  `amount` stays a positive magnitude; `direction` carries the sign, so a refund
+  **reduces** spending. Default is `debit` — a credit needs explicit refund/reversal
+  language or a `Type` field (a bare "credit card" never counts).
+  **`is_probable_refund: true`** marks a credit specifically detected as a refund.
+- **`is_declined: true`** — a declined charge (e.g. `Status: DECLINED`). Surface it
+  ("this charge was declined") but **don't book it**.
 
 ---
 
@@ -329,6 +336,8 @@ All under `https://email-budget-api.onrender.com`, all require `X-API-Key`.
 | `extraction.failed` (or `status: "extraction_failed"`) | "We received a receipt but couldn't read it — enter manually." Don't drop it silently. |
 | `duplicate_confidence: "1"` | Show a "possible duplicate" badge; the row is still live, user decides. |
 | `confidence_band: "low_confidence"` | Show a "low confidence" badge; keep fields editable. |
+| `direction: "credit"` / `is_probable_refund: true` | Book as a credit/refund, not a charge. Recommended: always route to manual review — never auto-confirm a credit. |
+| `is_declined: true` | Show an informational "charge declined" card; don't book it. |
 | Webhook delivery fails | The API retries with backoff. As a fallback, poll `GET /extractions`. |
 | Alias unknown/deactivated | The API drops the email at the edge; surface alias status in your settings UI. |
 | Cold start (~50s first request) | Generous timeouts + retry. |

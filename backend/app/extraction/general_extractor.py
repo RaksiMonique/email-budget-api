@@ -101,6 +101,18 @@ _LABEL_STOPWORDS = {
 _DATE_ISH = re.compile(r"\d{1,2}[/.\-][A-Za-z0-9]{2,9}[/.\-]\d{2,4}")
 _MONEY_ISH = re.compile(rf"[$£€¥]|\b(?:{_CCY_CODES})\b", re.I)
 
+# ── transaction direction / status (debit vs credit/refund, declined) ─────────
+# Refund/reversal is the strong credit signal. We deliberately do NOT treat the
+# bare word "credit" as a signal — every card alert says "credit card" — so a
+# credit direction requires explicit refund language or a Type-field value.
+_TYPE_LABEL = re.compile(
+    r"(?im)^[ \t>*]*(?:transaction\s+type|type)[ \t]*(?::[ \t]*|\n[ \t>*]*)([A-Za-z][^\n]{0,40})"
+)
+_REFUND_PROSE = re.compile(r"\b(?:refunds?|refunded|reversals?|reversed|charge\s?backs?)\b", re.I)
+_REFUND_TYPE = re.compile(r"refund|reversal|return|chargeback", re.I)
+_DEPOSIT = re.compile(r"\bdeposit(?:ed|s)?\b", re.I)
+_DECLINED = re.compile(r"\bdeclined\b", re.I)
+
 
 def _ccy(token: str) -> str | None:
     token = token.strip().upper()
@@ -206,6 +218,26 @@ def _card(text: str) -> tuple[str, str] | None:
         if m := pat.search(text):
             return m.group(1), m.group(0)
     return None
+
+
+def transaction_flags(text: str) -> tuple[str, bool, bool]:
+    """(direction, is_probable_refund, is_declined) for a financial email.
+
+    `direction` defaults to "debit" — the safe, current behavior. A "credit" needs
+    explicit refund/reversal language or a Type field that says so; a bare "credit"
+    in prose ("credit card") is never enough. `is_declined` flags a declined charge
+    (e.g. NCB "Status: DECLINED") — surfaced, but the app should not book it.
+    """
+    declined = bool(_DECLINED.search(text))
+    type_val = ""
+    if m := _TYPE_LABEL.search(text):
+        type_val = m.group(1).strip().lower()
+
+    if _REFUND_PROSE.search(text) or _REFUND_TYPE.search(type_val):
+        return "credit", True, declined
+    if (type_val.startswith("credit") and "card" not in type_val) or _DEPOSIT.search(text):
+        return "credit", False, declined
+    return "debit", False, declined
 
 
 def _merchant(text: str) -> tuple[str, str] | None:
