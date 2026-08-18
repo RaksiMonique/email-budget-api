@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,10 @@ class WebhookConfig(Base):
     __tablename__ = "webhook_config"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # which API key this config belongs to (per-key routing); NULL = legacy/global
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("api_keys.id"), nullable=True, index=True
+    )
     webhook_url: Mapped[str] = mapped_column(String(1024))
     webhook_secret_encrypted: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -44,6 +48,10 @@ class WebhookOutbox(Base):
     __tablename__ = "webhook_outbox"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # routing key: which API key's webhook receives this event; NULL = legacy/global
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("api_keys.id"), nullable=True, index=True
+    )
     event_type: Mapped[str] = mapped_column(String(64))
     payload_json: Mapped[dict] = mapped_column(JSONB)
     target_url: Mapped[str | None] = mapped_column(String(1024))

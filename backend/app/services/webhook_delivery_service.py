@@ -56,19 +56,26 @@ def build_request(row: WebhookOutbox, secret: str) -> tuple[bytes, dict]:
     return body, headers
 
 
-async def get_config(db: AsyncSession) -> tuple[str, str] | None:
-    """Latest webhook config → (url, decrypted secret), or None if unset OR
-    undecryptable (e.g. after SECRET_ENCRYPTION_KEY rotation) — an unreadable
-    config must defer delivery, never stall the whole outbox in an error loop."""
-    cfg = (
-        (
-            await db.execute(
-                select(WebhookConfig).order_by(WebhookConfig.created_at.desc()).limit(1)
-            )
+async def get_config(db: AsyncSession, api_key_id=None) -> tuple[str, str] | None:
+    """Webhook config → (url, decrypted secret), or None if unset OR undecryptable
+    (e.g. after SECRET_ENCRYPTION_KEY rotation) — an unreadable config must defer
+    delivery, never stall the whole outbox in an error loop.
+
+    Per-key routing: a keyed event (api_key_id set) resolves STRICTLY to that key's
+    config — never another key's, so dev and prod receivers can't cross-deliver. A
+    legacy/global event (api_key_id None) resolves to the latest config of any kind,
+    preserving the pre-per-key single-target behavior for already-wired setups.
+    """
+    if api_key_id is not None:
+        stmt = (
+            select(WebhookConfig)
+            .where(WebhookConfig.api_key_id == api_key_id)
+            .order_by(WebhookConfig.created_at.desc())
+            .limit(1)
         )
-        .scalars()
-        .first()
-    )
+    else:
+        stmt = select(WebhookConfig).order_by(WebhookConfig.created_at.desc()).limit(1)
+    cfg = (await db.execute(stmt)).scalars().first()
     if cfg is None:
         return None
     try:
@@ -101,10 +108,19 @@ async def process_due(db: AsyncSession, client: httpx.AsyncClient) -> int:
     if not rows:
         return 0
 
-    cfg = await get_config(db)
+    # resolve each row's receiver by its routing key, cached per batch so a key's
+    # config is looked up once even across many events
+    cfg_cache: dict = {}
+
+    async def _cfg_for(api_key_id):
+        if api_key_id not in cfg_cache:
+            cfg_cache[api_key_id] = await get_config(db, api_key_id)
+        return cfg_cache[api_key_id]
+
     for row in rows:
+        cfg = await _cfg_for(row.api_key_id)
         if cfg is None:
-            # no receiver configured yet — wait, don't burn attempts
+            # no receiver configured for this key yet — wait, don't burn attempts
             row.next_attempt_at = now + timedelta(seconds=NO_CONFIG_RETRY_SECONDS)
             continue
         url, secret = cfg

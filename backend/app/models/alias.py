@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -17,6 +17,11 @@ class Alias(Base):
     # parts are case-insensitive in practice)
     alias_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     external_user_id: Mapped[str] = mapped_column(String(255), index=True)
+    # the API key that created this alias — routes its events to that key's
+    # webhook (per-key config); NULL for aliases created before per-key routing
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("api_keys.id"), nullable=True, index=True
+    )
     label: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # increments on EVERY accepted email regardless of classification —

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.session import get_db
-from app.models import Alias
+from app.models import Alias, ApiKey
 from app.schemas.aliases import AliasCreate, AliasOut
 from app.security.api_key import require_api_key
 
@@ -34,7 +34,7 @@ def _to_out(alias: Alias) -> AliasOut:
 async def create_alias(
     body: AliasCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_api_key),
+    key: ApiKey = Depends(require_api_key),
 ) -> AliasOut:
     # lowercase: the Email Worker lowercases recipients (local parts are
     # case-insensitive in practice). ~77 bits of entropy after case-folding.
@@ -47,6 +47,7 @@ async def create_alias(
             alias = Alias(
                 alias_hash=token,
                 external_user_id=body.external_user_id,
+                api_key_id=key.id,  # routes this user's events to the caller's webhook
                 label=body.label,
             )
             db.add(alias)

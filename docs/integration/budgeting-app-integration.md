@@ -139,11 +139,13 @@ POST /api/v1/config/webhook/test   →  { "delivered": true, "status_code": 200 
 > ⚠️ Once configured, **already-queued** events deliver on the next poll — real
 > financial data reaches whatever environment you pointed at. Treat dev data as real.
 >
-> ⚠️ **One target at a time (today):** the webhook URL+secret is stored **globally**
-> (latest registration wins), **not per API key** — a single Email-API instance
-> pushes to one receiver. Dev + prod receivers *simultaneously* would need a
-> per-key change (ask us). For now, point it at one environment and switch at
-> launch, or use **pull** for the other.
+> ✅ **Per-key routing:** each API key has its **own** webhook (URL + secret) —
+> register once per key via `POST /api/v1/config/webhook` (it's scoped to the key in
+> your `X-API-Key`). An extraction routes to the webhook of the **key that created
+> that user's alias**, so **dev key → dev receiver and prod key → prod receiver run
+> simultaneously, no interference**. `/config/webhook/test` tests the calling key's
+> receiver. A key with no webhook registered just holds its events (deferred) until
+> you register one — it never falls back to another key's receiver.
 
 ---
 

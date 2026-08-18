@@ -180,3 +180,74 @@ async def test_undecryptable_secret_defers_without_burning_attempts(client, seed
     assert row.status == "pending"
     assert row.attempts == 0  # deferred, not burned
     assert row.next_attempt_at > datetime.now(timezone.utc)
+
+
+# ── per-key routing (dev key → dev receiver, prod key → prod receiver) ─────────
+
+
+def _key(label):
+    from app.models import ApiKey
+    from app.security.api_key import hash_key
+
+    return ApiKey(key_hash=hash_key(f"eb_{label}_{label}"), label=label)
+
+
+def _cfg(api_key_id, url):
+    from app.security import crypto
+
+    return WebhookConfig(
+        api_key_id=api_key_id,
+        webhook_url=url,
+        webhook_secret_encrypted=crypto.encrypt("secret-0000000000"),
+    )
+
+
+async def test_per_key_webhook_isolation(client, seeded, db_session):
+    """An event routes to the webhook of the API key that owns it — key A's events
+    reach A's URL, key B's reach B's, never cross-delivered."""
+    key_a, key_b = _key("dev"), _key("prod")
+    db_session.add_all([key_a, key_b])
+    await db_session.flush()
+    db_session.add_all(
+        [_cfg(key_a.id, "http://dev.test/hook"), _cfg(key_b.id, "http://prod.test/hook")]
+    )
+    db_session.add(_due_row(api_key_id=key_a.id, payload_json={"extraction_id": "a"}))
+    db_session.add(_due_row(api_key_id=key_b.id, payload_json={"extraction_id": "b"}))
+    await db_session.commit()
+
+    hits = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits[str(request.url)] = json.loads(request.content)["data"]["extraction_id"]
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as mc:
+        n = await delivery.process_due(db_session, mc)
+
+    assert n == 2
+    assert hits == {"http://dev.test/hook": "a", "http://prod.test/hook": "b"}
+
+
+async def test_keyed_event_without_its_config_defers_not_cross_delivers(client, seeded, db_session):
+    """An event for a key that has no webhook must DEFER — never fall back to a
+    different key's webhook (that would leak dev data to prod, or vice versa)."""
+    key_a, key_b = _key("dev"), _key("prod")
+    db_session.add_all([key_a, key_b])
+    await db_session.flush()
+    db_session.add(_cfg(key_a.id, "http://dev.test/hook"))  # only A has a config
+    db_session.add(_due_row(api_key_id=key_b.id))           # event belongs to B
+    await db_session.commit()
+
+    hit = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal hit
+        hit = True
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as mc:
+        await delivery.process_due(db_session, mc)
+
+    assert hit is False  # A's webhook was never called
+    row = (await db_session.execute(select(WebhookOutbox))).scalar_one()
+    assert row.status == "pending" and row.attempts == 0  # deferred, not burned

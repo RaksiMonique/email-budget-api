@@ -105,6 +105,7 @@ async def persist_result(
     email: ImportedEmail,
     external_user_id: str,
     result: PipelineResult,
+    api_key_id=None,
 ) -> ExtractionResult | None:
     """Store classification/extraction rows and outbox events. Returns the
     ExtractionResult row when one is created (financial emails only)."""
@@ -126,6 +127,7 @@ async def persist_result(
     if result.status == Status.FORWARDING_VERIFICATION:
         db.add(
             WebhookOutbox(
+                api_key_id=api_key_id,
                 event_type="forwarding.verification",
                 payload_json={
                     "alias_hash": email.alias_hash,
@@ -174,5 +176,11 @@ async def persist_result(
         if status_value == Status.PENDING_REVIEW.value
         else "extraction.failed"
     )
-    db.add(WebhookOutbox(event_type=event, payload_json=_extraction_event_payload(row, email)))
+    db.add(
+        WebhookOutbox(
+            api_key_id=api_key_id,
+            event_type=event,
+            payload_json=_extraction_event_payload(row, email),
+        )
+    )
     return row

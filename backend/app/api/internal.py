@@ -158,7 +158,9 @@ async def email_received(
 
     # 5. Run the pure pipeline + persist everything in this one transaction
     result = run_pipeline(raw)
-    row = await persist_result(db, email, alias.external_user_id, result)
+    row = await persist_result(
+        db, email, alias.external_user_id, result, api_key_id=alias.api_key_id
+    )
 
     # 6. Count every accepted email; fire the one-time first-email event
     was_first = alias.emails_received == 0
@@ -170,6 +172,7 @@ async def email_received(
     if was_first:
         db.add(
             WebhookOutbox(
+                api_key_id=alias.api_key_id,
                 event_type="alias.first_email_received",
                 payload_json={
                     "alias_hash": alias_hash,

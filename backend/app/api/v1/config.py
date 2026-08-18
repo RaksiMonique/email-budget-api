@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models import WebhookConfig
+from app.models import ApiKey, WebhookConfig
 from app.schemas.extractions import WebhookConfigBody
 from app.security import crypto
 from app.security.api_key import require_api_key
@@ -19,7 +19,9 @@ router = APIRouter(
 
 @router.post("/webhook")
 async def set_webhook_config(
-    body: WebhookConfigBody, db: AsyncSession = Depends(get_db)
+    body: WebhookConfigBody,
+    db: AsyncSession = Depends(get_db),
+    key: ApiKey = Depends(require_api_key),
 ) -> dict:
     # strict URL validation at config time — `^https?://` alone admits strings
     # like "http://[::1" that later raise httpx.InvalidURL inside the poller
@@ -34,6 +36,7 @@ async def set_webhook_config(
 
     db.add(
         WebhookConfig(
+            api_key_id=key.id,  # this config belongs to the calling key (per-key routing)
             webhook_url=body.webhook_url,
             webhook_secret_encrypted=crypto.encrypt(body.webhook_secret),
         )
@@ -43,8 +46,10 @@ async def set_webhook_config(
 
 
 @router.post("/webhook/test")
-async def test_webhook(db: AsyncSession = Depends(get_db)) -> dict:
-    cfg = await delivery.get_config(db)
+async def test_webhook(
+    db: AsyncSession = Depends(get_db), key: ApiKey = Depends(require_api_key)
+) -> dict:
+    cfg = await delivery.get_config(db, key.id)
     if cfg is None:
         return {"delivered": False, "error": "no webhook configured"}
     url, secret = cfg

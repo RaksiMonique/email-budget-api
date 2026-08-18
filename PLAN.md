@@ -525,7 +525,11 @@ These must be done before any code or Cloudflare setup.
 
 Two features the budgeting team asked us to scope + prioritize.
 
-**1. Per-key webhook config** — target: before their multi-user dev soak (~weeks out).
+**1. Per-key webhook config** — ✅ **BUILT 2026-08-18** (migration `cf8693f27f1d`;
+`api_key_id` on `webhook_config`/`aliases`/`webhook_outbox`; `set/get_config`
+key-scoped; poller routes per row with a keyed event resolving STRICTLY to its key's
+config, legacy null-keyed → latest global; alias creation stamps the caller's key;
+2 isolation tests). Delivered ahead of their dev soak. Original scope below.
 Today `webhook_config` is global (latest registration wins), so dev + prod receivers
 can't coexist; and since `forwarding.verification` is webhook-only, dev loses Gmail
 onboarding the moment prod registers. Scope: add `api_key_id` to `webhook_config`,
