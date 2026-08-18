@@ -521,6 +521,36 @@ These must be done before any code or Cloudflare setup.
 
 > From [docs/architecture/redesign-summary.md](docs/architecture/redesign-summary.md) Q3 and [docs/future-roadmap/roadmap.md](docs/future-roadmap/roadmap.md)
 
+### Budget-app integration — committed scopes (2026-08-17, awaiting team review)
+
+Two features the budgeting team asked us to scope + prioritize.
+
+**1. Per-key webhook config** — target: before their multi-user dev soak (~weeks out).
+Today `webhook_config` is global (latest registration wins), so dev + prod receivers
+can't coexist; and since `forwarding.verification` is webhook-only, dev loses Gmail
+onboarding the moment prod registers. Scope: add `api_key_id` to `webhook_config`,
+to `aliases` (stamp the key that created the alias), and to `webhook_outbox` (stamp
+the routing key at event-creation time, copied from the alias). `set/get_config`
+become key-scoped; the poller groups pending rows by `api_key_id` and delivers each
+to that key's config; a **null `api_key_id` falls back to the current global path**
+(back-compat, no breakage). `require_api_key` must expose the key id to handlers.
+(`webhook_outbox.target_url` already exists, unused — a per-row slot.) Effort ~1–2
+days, low risk (additive + fallback). Interim: single webhook → dev (option a).
+
+**2. Transaction direction (debit/credit + refund)** — **gates auto-confirm** (a
+refund auto-booked as a charge has no reviewer to catch it). Scope: add `direction`
+(`'debit'|'credit'`, default `debit`) + `is_probable_refund` (bool) to
+`extraction_results` and all payloads; keep `amount` a **positive magnitude**
+(direction carries the sign — non-breaking for existing consumers). Heuristic
+detection (no ML): `refund`/`refunded`/`reversal`/`reversed`/`returned`/`chargeback`/
+`void` + a `Type`/`Transaction Type` field value ⇒ credit. **Do NOT key on the bare
+word "credit"** — every card alert says "credit card"; only a Type-field value or
+refund-paired language counts (tests must cover "credit card purchase" ⇒ debit).
+Default `debit` = zero behavior change. Recommend the eventual auto-confirm policy
+**exclude credits/refunds regardless of confidence**. Effort ~1 day, low risk.
+Reversal *netting* (match refund ↔ original charge) is a larger follow-on, out of
+scope here. Cheap adjacent add: `Status: DECLINED` handling (declined ⇒ don't book).
+
 ### Security hardening — leaked-alias abuse (post-launch)
 
 > **Threat (identified 2026-08-10):** the alias is an unguessable bearer token (~72 bits), but if it *leaks* — it appears in the user's Sent folder, forwarding settings, and the app's settings UI — anyone who learns it can send unlimited mail to that user's alias. Blast radius is bounded (user-scoped; **no auto-confirm**, so fakes can only clutter the `pending_review` queue, never the real ledger), but the flood + spoof vectors below are real and currently unmitigated.
