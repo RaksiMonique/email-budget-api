@@ -138,6 +138,12 @@ POST /api/v1/config/webhook/test   →  { "delivered": true, "status_code": 200 
 ```
 > ⚠️ Once configured, **already-queued** events deliver on the next poll — real
 > financial data reaches whatever environment you pointed at. Treat dev data as real.
+>
+> ⚠️ **One target at a time (today):** the webhook URL+secret is stored **globally**
+> (latest registration wins), **not per API key** — a single Email-API instance
+> pushes to one receiver. Dev + prod receivers *simultaneously* would need a
+> per-key change (ask us). For now, point it at one environment and switch at
+> launch, or use **pull** for the other.
 
 ---
 
@@ -234,6 +240,9 @@ Field notes:
   badge and let the user decide.
 - **currency** — a bare `$` from a Jamaican bank defaults to `JMD`; the user can
   correct it on review.
+- **No debit/credit direction yet** — every `amount` is a positive magnitude; a
+  refund/credit is **not** distinguished from a charge (on the roadmap). Book as a
+  debit for now.
 
 ---
 
@@ -248,8 +257,29 @@ Every delivery is compact JSON `{ event, event_id, created_at, data }`:
   "data": { /* same fields as the extraction detail above */ }
 }
 ```
-**Events:** `extraction.created`, `extraction.failed` (same `data` shape, money/date
-null), `alias.first_email_received`, `forwarding.verification`.
+**Events & `data` shapes:**
+
+- **`extraction.created`** / **`extraction.failed`** — `data` is the full extraction
+  (fields as in §9); the failed one has money/date `null`.
+- **`alias.first_email_received`** — fires **once**, the first time an email is
+  accepted for an alias (the onboarding "forwarding works!" signal):
+  ```json
+  { "alias_hash": "ab12cd34ef56gh78", "external_user_id": "user-1234", "email_id": "…" }
+  ```
+- **`forwarding.verification`** — Gmail's "confirm your forwarding address" email,
+  captured at the alias so the user can finish setup in-app:
+  ```json
+  { "alias_hash": "ab12cd34ef56gh78", "provider": "gmail",
+    "code": null, "confirmation_url": "https://mail-settings.google.com/mail/…",
+    "received_at": "2026-05-01T14:03:00+00:00" }
+  ```
+  **Gmail onboarding notes:** (1) current Gmail emails carry only the
+  **`confirmation_url`** — `code` is usually `null`, so surface the URL for the user
+  to **click** (we deliberately never click it server-side — that would let anyone
+  wire their inbox to a victim's alias). (2) This event is **webhook-only** — there
+  is no pull endpoint for it, so a configured webhook is **required** to complete
+  Gmail forwarding setup. (3) Only Gmail is detected; Outlook forwarding generally
+  needs no confirmation. Need another provider? We add its sender address (one line).
 
 **Headers:** `X-EmailBudget-Timestamp: <unix seconds>` and
 `X-EmailBudget-Signature: <hex>` — a **raw** HMAC-SHA256 hex digest, **no `sha256=`
