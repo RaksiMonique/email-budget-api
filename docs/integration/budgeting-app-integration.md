@@ -99,6 +99,22 @@ X-API-Key: <key>
 - **Confirm forwarding works:** poll `GET /api/v1/aliases?external_user_id=…` until
   `emails_received > 0`, or subscribe to the `alias.first_email_received` webhook.
 
+**Onboarding timing — Gmail forwarding confirmation.** When the user adds their
+forwarding address, Gmail emails a confirmation to their alias; we detect it and
+send you a `forwarding.verification` webhook (§10) carrying the `confirmation_url`
+for the user to click.
+
+| Scenario | Time to reach your webhook |
+|---|---|
+| Normal (warm) | **~15–60s** — mostly Gmail's send + routing; our processing + the 5s delivery poll add ~5–6s |
+| Cold start (API idle >15 min) | up to **~1.5 min** — the first request wakes the free-tier instance (~50s); nothing lost |
+| Receiver down / erroring | retried at 60s → 5m → 15m → 1h (5 attempts), then `failed` |
+
+Design for it: (1) **register your webhook before onboarding** — `forwarding.verification`
+is webhook-only, so the receiver must be live and reliable or the event just waits;
+(2) show a "waiting for Gmail confirmation…" state that tolerates ~1–2 min, then
+display the `confirmation_url`. Don't assume it's instant.
+
 ---
 
 ## 5. Get transactions — two ways
