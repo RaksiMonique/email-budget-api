@@ -32,8 +32,13 @@ VERIFICATION_SENDERS = {
 
 _GMAIL_CODE_SUBJECT = re.compile(r"\(#(\d{6,12})\)")
 _GMAIL_CODE_BODY = re.compile(r"(?:code|konfirmationscode)\D{0,40}?(\d{6,12})", re.I)
+# Gmail's confirm link. The HOST VARIES: the original confirmation email uses
+# mail-settings.google.com, but a "Re-send" uses mail.google.com — match both
+# (real incident 2026-08-18: resends came through with a null URL). Require the
+# /mail/vf- (verify) path so we never surface the /mail/uf- (cancel) link that
+# appears in the very same email.
 _GMAIL_CONFIRM_URL = re.compile(
-    r"https://mail-settings\.google\.com/mail/[A-Za-z0-9_\-./?=&%]+"
+    r"https://mail(?:-settings)?\.google\.com/mail/vf-[A-Za-z0-9_\-./?=&%\[\]]+"
 )
 
 
