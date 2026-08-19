@@ -160,8 +160,17 @@ POST /api/v1/config/webhook/test   →  { "delivered": true, "status_code": 200 
 > your `X-API-Key`). An extraction routes to the webhook of the **key that created
 > that user's alias**, so **dev key → dev receiver and prod key → prod receiver run
 > simultaneously, no interference**. `/config/webhook/test` tests the calling key's
-> receiver. A key with no webhook registered just holds its events (deferred) until
-> you register one — it never falls back to another key's receiver.
+> receiver. A key with no webhook registered just holds its events (deferred, and
+> recoverable via pull) until you register one — it never falls back to another
+> key's receiver. **So register a key's webhook before you onboard users on that
+> key.**
+>
+> 🛠 **One-time transition note (per-key deploy, 2026-08-18):** the migration set
+> every pre-existing registration's key to NULL (a legacy/global config can't be
+> mapped to a key). Keyed events do **not** use a NULL-slot config, so **any client
+> that registered *before* the per-key deploy must re-register once** with its key.
+> Registrations made after the deploy (including your production webhook) are keyed
+> from creation and are unaffected.
 
 ---
 
