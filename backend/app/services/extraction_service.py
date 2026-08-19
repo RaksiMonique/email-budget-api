@@ -9,17 +9,20 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.extraction.models import ExtractionResult as PipelineResult
 from app.extraction.models import Status
 from app.models import (
+    DuplicateMatch,
     EmailClassification,
     ExtractionResult,
     ExtractionSnippet,
     ImportedEmail,
     WebhookOutbox,
 )
+from app.schemas.extractions import DuplicateMatchOut, ExtractionDetail
 from app.services import duplicate_service
 
 # pipeline status -> imported_emails.status
@@ -74,30 +77,25 @@ def apply_result_fields(row: ExtractionResult, result: PipelineResult) -> str:
     return status_value
 
 
-def _extraction_event_payload(row: ExtractionResult, email: ImportedEmail) -> dict:
-    return {
-        "extraction_id": str(row.id),
-        "email_id": str(email.id),
-        "external_user_id": row.external_user_id,
-        "alias_hash": email.alias_hash,
-        # money as strings — never JSON floats
-        "amount": _amount_str(row.amount),
-        "currency": row.currency,
-        "merchant": row.merchant_normalized or row.merchant_raw,
-        "category_suggestion": row.category_suggestion,
-        "transaction_date": (
-            row.transaction_date.isoformat() if row.transaction_date else None
-        ),
-        "extraction_confidence": str(row.extraction_confidence),
-        "confidence_band": row.confidence_band,
-        "direction": row.direction,                    # "debit" | "credit"
-        "is_probable_refund": row.is_probable_refund,
-        "is_declined": row.is_declined,
-        # flag-only dedup: "1" means an exact-fingerprint match exists and the
-        # UI should show a possible-duplicate badge; the row is still live
-        "duplicate_confidence": format(row.duplicate_confidence.normalize(), "f"),
-        "status": row.status,
-    }
+async def _extraction_event_payload(db: AsyncSession, row: ExtractionResult) -> dict:
+    """Webhook `data` == the §9 extraction-detail object, byte-for-byte identical
+    to GET /extractions/{id}. Built from the ExtractionDetail schema so emission
+    and the contract can never drift.
+
+    Incident 2026-08-19: the old hand-rolled payload sent `extraction_id`/`merchant`
+    while the detail (and the §10 doc) use `id`/`merchant_normalized`/`merchant_raw`
+    /`card_last4`, so a receiver reading `data.id` got null and its insert failed.
+    """
+    # server_default created_at isn't populated on the ORM object after flush
+    await db.refresh(row, ["created_at"])
+    matches = (
+        (await db.execute(select(DuplicateMatch).where(DuplicateMatch.extraction_id == row.id)))
+        .scalars()
+        .all()
+    )
+    detail = ExtractionDetail.model_validate(row)
+    detail.duplicate_matches = [DuplicateMatchOut.model_validate(m) for m in matches]
+    return detail.model_dump(mode="json")
 
 
 async def persist_result(
@@ -176,11 +174,6 @@ async def persist_result(
         if status_value == Status.PENDING_REVIEW.value
         else "extraction.failed"
     )
-    db.add(
-        WebhookOutbox(
-            api_key_id=api_key_id,
-            event_type=event,
-            payload_json=_extraction_event_payload(row, email),
-        )
-    )
+    payload = await _extraction_event_payload(db, row)
+    db.add(WebhookOutbox(api_key_id=api_key_id, event_type=event, payload_json=payload))
     return row

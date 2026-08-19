@@ -66,6 +66,28 @@ async def test_full_flow_creates_extraction_and_outbox(client, seeded, mock_r2, 
     assert alias.emails_received == 1
 
 
+async def test_webhook_payload_matches_detail_schema(client, seeded, mock_r2, db_session):
+    """The extraction.created webhook `data` must carry the SAME fields as the §9
+    extraction detail (GET /extractions/{id}). Incident 2026-08-19: it sent
+    extraction_id/merchant while the detail uses id/merchant_normalized, so a
+    receiver reading data.id got null and its insert failed. Lock the shapes."""
+    from app.schemas.extractions import ExtractionDetail
+
+    r = await client.post("/internal/email-received", json=PAYLOAD, headers=HEADERS)
+    assert r.status_code == 200, r.text
+
+    outbox = (
+        await db_session.execute(
+            select(WebhookOutbox).where(WebhookOutbox.event_type == "extraction.created")
+        )
+    ).scalar_one()
+    data = outbox.payload_json
+    assert set(data.keys()) == set(ExtractionDetail.model_fields.keys())
+    assert data["id"] and "extraction_id" not in data            # id, not extraction_id
+    assert "merchant_normalized" in data and "merchant" not in data
+    assert "card_last4" in data and "merchant_raw" in data       # detail fields the team uses
+
+
 async def test_duplicate_message_id_is_idempotent(client, seeded, mock_r2, db_session):
     r1 = await client.post("/internal/email-received", json=PAYLOAD, headers=HEADERS)
     assert r1.status_code == 200

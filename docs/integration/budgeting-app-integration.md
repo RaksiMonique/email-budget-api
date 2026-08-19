@@ -293,8 +293,10 @@ Every delivery is compact JSON `{ event, event_id, created_at, data }`:
 ```
 **Events & `data` shapes:**
 
-- **`extraction.created`** / **`extraction.failed`** — `data` is the full extraction
-  (fields as in §9); the failed one has money/date `null`.
+- **`extraction.created`** / **`extraction.failed`** — `data` is **exactly** the §9
+  extraction-detail object, byte-for-byte identical to `GET /extractions/{id}`
+  (so: `id`, `merchant_normalized`/`merchant_raw`, `card_last4`, … — **not**
+  `extraction_id`/`merchant`). The failed one has money/date `null`.
 - **`alias.first_email_received`** — fires **once**, the first time an email is
   accepted for an alias (the onboarding "forwarding works!" signal):
   ```json

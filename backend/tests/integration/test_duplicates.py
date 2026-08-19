@@ -81,7 +81,7 @@ async def test_same_transaction_is_flagged_never_suppressed(
         if o.event_type == "extraction.created"
     ]
     assert len(created) == 2
-    by_id = {o.payload_json["extraction_id"]: o.payload_json for o in created}
+    by_id = {o.payload_json["id"]: o.payload_json for o in created}
     assert by_id[str(first.id)]["duplicate_confidence"] == "0"
     assert by_id[str(second.id)]["duplicate_confidence"] == "1"
 
