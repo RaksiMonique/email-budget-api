@@ -560,6 +560,39 @@ Default `debit` = zero behavior change. Recommend the eventual auto-confirm poli
 Reversal *netting* (match refund ↔ original charge) is a larger follow-on, out of
 scope here. Cheap adjacent add: `Status: DECLINED` handling (declined ⇒ don't book).
 
+### Multi-account onboarding — one alias, many sources (revisit)
+
+**Decision (2026-08-19):** a user forwards from multiple mailboxes (2nd Gmail,
+Outlook, work email) into their **single** import alias. All learning
+(merchants/cards/categories) is per-`external_user_id`, so it doesn't matter which
+inbox a transaction arrived through. The budgeting app surfaces the Gmail confirm
+button for **every** `forwarding.verification` — not just the first (a
+hidden-after-first-setup bug they've since fixed) — so each additional Gmail account
+gets its confirmation click. Outlook needs no confirmation (except where M365 admin
+policy blocks external auto-forward outright — a hard block, not a prompt). **Ships
+today with no API change.**
+
+**Enhancement to do on revisit — add `requested_by` to `forwarding.verification`:**
+With one alias, the requesting source address lives ONLY in Gmail's email
+subject/body — no header carries it — and Gmail **resends** emit a fresh
+`forwarding.verification` each time (real incident 2026-08-18: one mailbox produced
+three events, three different confirm URLs, same `alias_hash`). Without the source
+address the app can't tell "one account re-sent 3×" from "three accounts" → inflated
+pending count + stale confirm buttons after one is clicked. Fix: extract the
+requesting address (already in the subject `(… Receive Mail from X)` and the body
+`X has requested to…`) into the payload as `requested_by`, so the app keys its
+pending list on it — collapse resends, correct account count, clear the item on
+confirm. ~15 lines (`verification_detector` + `extraction_service`) + a test + §10
+doc. Low risk, Gmail-only (mirrors the existing Gmail-only detection).
+
+**Parked until a real user asks — per-source aliases:** give each mailbox its own
+alias (the API already supports unlimited aliases + a `label` per
+`external_user_id`, so no change our side). Win: per-source control (deactivate/rotate
+one mailbox without touching others; per-source health stats) and **structural**
+source attribution (alias = account, no body-parsing — survives Gmail template
+drift). Cost: budgeting-app schema for the alias↔account map + heavier onboarding.
+Not worth it until there's a real user with that need.
+
 ### Security hardening — leaked-alias abuse (post-launch)
 
 > **Threat (identified 2026-08-10):** the alias is an unguessable bearer token (~72 bits), but if it *leaks* — it appears in the user's Sent folder, forwarding settings, and the app's settings UI — anyone who learns it can send unlimited mail to that user's alias. Blast radius is bounded (user-scoped; **no auto-confirm**, so fakes can only clutter the `pending_review` queue, never the real ledger), but the flood + spoof vectors below are real and currently unmitigated.
