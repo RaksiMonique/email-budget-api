@@ -151,6 +151,27 @@ def test_html_only_forward_resolves_and_extracts():
     assert r.status == Status.PENDING_REVIEW
 
 
+def test_ncb_autoforward_html_table_extracts_via_template():
+    """Gmail *filter* auto-forward delivers the bank's ORIGINAL HTML (no text part,
+    no forwarded-message wrapper) — the normal mode for real users. html2text
+    renders the transaction table as 'Label | Value' rows; content_preparer
+    normalizes them to label-above-value so the NCB template still matches. The
+    label-only fields (merchant, card_last4 — no shape signature) must not come out
+    null, and it should hit the template (high confidence). Incident 2026-08-20."""
+    r = _run("ncb_autoforward_html.eml")
+
+    assert r.resolved_sender.domain == "jncb.com"
+    assert r.value("amount") == Decimal("8231.30")
+    assert r.value("currency") == "JMD"
+    assert r.value("transaction_date") == date(2026, 8, 20)
+    assert r.value("card_last4") == "4821"                # label-only — was null
+    assert r.value("merchant") == "SAMPLE STORE KGN"      # label-only — was null
+    assert r.merchant_normalized is not None
+    assert all(r.fields[f].method == "template" for f in ("amount", "merchant", "card_last4"))
+    assert r.status == Status.PENDING_REVIEW
+    assert r.confidence_band == "high"                    # template path, not 0.487
+
+
 def test_gmail_forwarding_verification_detected():
     r = _run("gmail_forwarding_verification.eml")
 

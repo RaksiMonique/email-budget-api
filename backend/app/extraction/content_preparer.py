@@ -53,6 +53,12 @@ def prepare(parsed: ParsedEmail) -> str:
         if len(html_text) > len(text):
             text = html_text
 
+    # html2text renders HTML transaction tables as "Label | Value" rows; normalize
+    # them to label-above-value so the SAME label patterns parse auto-forwarded
+    # (HTML-only) alerts as well as manually-forwarded (plain-text) ones. Real
+    # incident 2026-08-20: an NCB auto-forward's merchant/card came out null.
+    text = _normalize_pipe_tables(text)
+
     # strip forwarded-quote markers, including NESTED "> > " levels
     text = re.sub(r"(?m)^[ \t]*(?:>[ \t]?)+", "", text)
     text = _strip_forward_headers(text)
@@ -79,6 +85,27 @@ def _strip_forward_headers(text: str) -> str:
                 i += 1
             continue
         i += 1
+    return "\n".join(out)
+
+
+_TABLE_SEP = re.compile(r"^[\s|:\-]+$")  # markdown table separator / empty-pipe row
+
+
+def _normalize_pipe_tables(text: str) -> str:
+    """`Label | Value` (html2text's rendering of a 2-column HTML table) -> two
+    lines, `Label` then `Value`. Rows that are pure separators (`---|---`, `| |`)
+    are dropped; non-table lines and multi-cell rows pass through untouched."""
+    out: list[str] = []
+    for line in text.splitlines():
+        if "|" in line:
+            if _TABLE_SEP.match(line):
+                continue
+            cells = [c.strip() for c in line.split("|") if c.strip()]
+            if len(cells) == 2:  # Label | Value
+                out.append(cells[0])
+                out.append(cells[1])
+                continue
+        out.append(line)
     return "\n".join(out)
 
 

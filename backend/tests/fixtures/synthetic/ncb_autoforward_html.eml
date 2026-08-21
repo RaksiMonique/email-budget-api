@@ -1,0 +1,25 @@
+From: NCB Alerts <no-reply-ncbcardalerts@jncb.com>
+To: ab12cd34ef56gh78@fintrack.raksimoni.com
+Subject: TRANSACTION APPROVED
+Message-Id: <ncb-autoforward-1@jncb.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=jncb.com; s=default; h=from:subject:to; bh=abc; b=xyz
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<h2>Transaction Approved</h2>
+<p>Hello Cardholder,</p>
+<p>Thank you for choosing your NCB card as your payment method of choice. See transaction details below</p>
+<table border="0" cellpadding="0">
+  <tr><td>Reference Number</td><td>816949332</td></tr>
+  <tr><td>Card Number Ending</td><td>4821</td></tr>
+  <tr><td>Card Type</td><td>NCB VISA PLATINUM</td></tr>
+  <tr><td>Date</td><td>20/AUG/2026</td></tr>
+  <tr><td>Time</td><td>10:36 AM</td></tr>
+  <tr><td>Amount</td><td>JMD 8,231.30</td></tr>
+  <tr><td>Merchant</td><td>SAMPLE STORE KGN</td></tr>
+  <tr><td>Status</td><td>APPROVED</td></tr>
+  <tr><td>Available Balance</td><td>JMD 87,654.97</td></tr>
+</table>
+<p>Don't recognize this charge? Contact us at 888-622-3477. Email ncbinfo@jncb.com</p>
+</body></html>
